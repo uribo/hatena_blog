@@ -1,0 +1,138 @@
+---
+title: "今日の作業を可視化する: Macのログをごにょる"
+author: "Shinya Uryu"
+date: "2015年9月23日"
+output: 
+  md_document:
+    variant: markdown_github
+---
+
+```{r, include = FALSE, cache = FALSE}
+opts_chunk$set(error = TRUE, eval = FALSE)
+```
+
+昨日書いた記事に対して、ナイスなコメントをいただいた。
+
+
+
+[https://twitter.com/sinhrks/status/646163703402905600:embed]
+
+
+
+これができるようになれば、いちいち通知用の関数を記述しなくても通知が飛ぶようになって素敵になる。プレッシャーも感じつつ、調べてみたのでメモ。
+
+上記の記事で参照されている記事を辿る...
+
+http://blog.recyclebin.jp/archives/4382
+http://blog.recyclebin.jp/archives/4369
+
+...ちょっとよくわからん。見よう見真似してみる。
+
+### 関数の用意
+
+```{r, eval = 1, warning = FALSE}
+devtools::source_gist("9c419af5547fde20d2a7")
+notify(msg = "完了した際のコメント")
+```
+
+### hookを利用する
+
+plotする度にヌマクローを表示させるというもの。
+
+```{r, eval = FALSE}
+setNumacraw <- function(){
+  .LastuserHook <<- getHook("plot.new")
+  setHook("plot.new", yeah::numacraw, "append")
+  setHook("plot.new", notify, "append")
+}
+setNumacraw()
+plot(1)
+plot(1)
+```
+
+### 関数に細工を施す
+
+こちらは関数に直接編集して、関数による出力が行われる前に任意の処理を加える方法。
+
+ゴミ箱さんの記事では検定をして有意だった場合に「有意差でたよっ（`yeah::detayo()`）」が実行されるようにしていたが、**人がいる環境で`yeah::detayo()`は恥ずかしい。**声がなくて寂しいが、通知で我慢しよう。
+
+`yeah::detayo()`の部分を`notify()`に変更すれば良い。
+
+```{r, eval = FALSE}
+tt <- stats:::t.test.default
+tt.body <- body(tt)
+ret <- tt.body[[length(tt.body)]]
+tt.body[[length(tt.body)]] <- quote(if (rval$p.value < 0.05) notify(paste("有意差でたよっ", remoji::emoji("+1"), "P = ", rval$p.value)))
+tt.body[[length(tt.body) + 1]] <- ret
+body(tt) <- tt.body
+assignInNamespace("t.test.default", tt, getNamespace("stats"))
+```
+
+```{r}
+set.seed(123)
+t.test(rnorm(10, 1))
+```
+
+関数の中身さえわかってしまえば手を加えるのは簡単（同じ方法でできる）
+
+```{r, eval = FALSE, echo = FALSE}
+tt2 <- summary.default
+tt2.body <- body(tt2)
+val <- tt2.body[[length(tt2.body)]] # value
+tt2.body[[length(tt2.body)]] <- quote(notify())
+tt2.body[[length(tt2.body) + 1]] <- val
+body(tt2) <- tt2.body
+assignInNamespace("summary.default", tt2, getNamespace("base"))
+summary(iris)
+```
+
+#### ggplot2
+
+**`{ggplot2}`**にも対応させた。
+
+```{r, echo = FALSE, eval=FALSE}
+tt <- ggplot2:::`+.gg`
+tt.body <- body(tt)
+return.last <- tt.body[[length(tt.body)]]
+tt.body[[length(tt.body)]] <- quote(notify(paste(remoji::emoji("art"), "Finished", remoji::emoji("beer"))))
+tt.body[[length(tt.body) + 1]] <- return.last
+body(tt) <- tt.body
+
+assignInNamespace("+.gg", tt, getNamespace("ggplot2"))
+ggplot(iris, aes(Sepal.Length, Petal.Width)) + geom_point()
+ggplot(mtcars, aes(mpg, disp)) + geom_point()
+```
+
+### Pipeline
+
+**`{magrittr`}**によるpipe処理ではちょっと変わる。
+
+```{r, eval=FALSE}
+mtcars %>% dplyr::select(mpg, cyl, disp) %>% 
+  dplyr::mutate(disp2 = disp / 2) %>% head() %>% {
+    notify("fin")
+    return(.)
+  }
+```
+
+もっと簡単に利用できるよう、関数を定義してみる。
+
+```{r}
+pipe.notify <- function (x, msg) {
+  x %>%  {
+  notify(msg = msg)
+  return(.)
+  }
+}
+```
+
+```{r}
+mtcars %>% dplyr::select(mpg, cyl, disp) %>% 
+  dplyr::mutate(disp2 = disp / 2) %>% head() %>% pipe.notify(msg = "おわた")
+
+pipe.notify(mtcars %>% 
+              dplyr::select(mpg, cyl, disp) %>% 
+              dplyr::mutate(disp2 = disp / 2)  %>% head(), msg = "fin")
+```
+
+

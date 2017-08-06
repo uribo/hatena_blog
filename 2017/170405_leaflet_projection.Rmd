@@ -1,0 +1,114 @@
+---
+title: "leafletでベースタイルを表示させずにポリゴンだけを表示する方法と投影法を変更する方法" 
+author: "Shinya Uryu"
+date: "2017年4月5日"
+output: 
+  md_document:
+    variant: markdown_github
+---
+
+```{r [SETTING], include = FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = FALSE, 
+                      message = FALSE, error = FALSE, warning = FALSE,
+                      fig.align = "center",
+                      tidy = TRUE,
+                      tidy.opts = list(blank = FALSE, width.cutoff = 40))
+```
+
+```{r, eval = TRUE, include = FALSE}
+library(magrittr)
+library(remoji)
+library(pumpkin.seeds)
+```
+
+先日行われた[Global Tokyo.R](https://japanr.connpass.com/event/54006/)にてleafletについて発表してきました。発表後、ドイツからの参加者 @henningsway から質問をもらいました。それがタイトルの内容です。ちょっと焦っていたので、いや多分無理、みたいな回答になってしまいましたが、落ち着いてやればできました。@henningsway にはツイッターで返答しておいたのですが、せっかくなのでブログ記事にまとめます。
+
+まずは利用するパッケージを読み込んで、描画するデータを用意します。描画する地図データは国土交通省国土政策局「国土数値情報（行政区域データ
+平成27年4月1日時点のデータ） http://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-N03.html 」を使わせてもらいます。このデータは**`{jpndistrict}`**パッケージを使って呼び出します。
+
+今回は「東京都」を描画することにします。`jpndistrict::spdf_jpn_pref()`に都道府県コードを指定して地図データ(SpatialPolygonsDataFrame)を呼び出します。東京都は小笠原諸島や伊豆大島を含んでいますが、表示の都合から、島嶼部については除外します。また、市区町村区分に応じて塗り分けを行うための処理を加えます。
+
+```{r}
+library(leaflet)
+library(dplyr)
+```
+
+```{r}
+pref <- jpndistrict::spdf_jpn_pref(code = 13) %>%
+  # 島嶼部の市区町村を除外する
+  mutate(city_code = as.character(city_code) %>% as.numeric()) %>%
+  filter(city_code < 13361) %>%
+  # 市区町村に応じてラベルを割り振る
+  mutate(type = case_when(
+    grepl("区$", .$city_name_full) ~ "ward",
+    grepl("市$", .$city_name_full) ~ "city",
+    grepl("町$", .$city_name_full) ~ "country",
+    grepl("村$", .$city_name_full) ~ "village"
+    ))
+```
+
+次に、塗り分けのための関数を定義しておきます。
+
+```{r}
+factpal <- colorFactor(colormap::colormap(nshades = n_distinct(pref$type),
+                                          colormap = colormap::colormaps$viridis),
+                       pref$type)
+```
+
+では地図を描画します。
+
+```{r, eval = FALSE, echo = FALSE}
+library(mapview)
+```
+
+```{r}
+leaflet() %>% 
+  addPolygons(data = pref,
+              fillColor = ~factpal(type),
+              weight = 1,
+              fillOpacity = 0.7
+              )
+```
+
+[f:id:u_ribo:20170405004938p:plain]
+
+これだけ。いつも**`{leaflet}`**を使うときは`addTiles()`を使ってベースタイルを表示させますが、逆にタイルなんていらないんだと考えればポリゴンだけを表示できます。とここまでで筆を置くのは物足りないので**`{leaflet}`**で投影法を変更した地図を描画する方法を紹介。
+
+今度は**`{rnaturalearth}`**を利用してNatural Earthが提供する地図データを使います。まずは世界地図から。
+
+```{r}
+library(rnaturalearth)
+
+m.world <- ne_countries(returnclass = "sf")
+crs.molvidde <- leafletCRS(
+  crsClass = "L.Proj.CRS", 
+  code = "ESRI:53009",
+  # モルワイデ図法
+  proj4def = "+proj=moll +lon_0=0 +x_0=0 +y_0=0 +a=6371000 +b=6371000 +units=m +no_defs",
+  resolutions = c(65536, 32768, 16384, 8192, 4096, 2048))
+
+popcolor <- colorNumeric(colormap::colormaps$viridis, domain = m.world$pop_est)
+
+leaflet(options = leafletOptions(
+    maxZoom = 5, crs = crs.molvidde, attributionControl = FALSE)) %>% 
+  addGraticule(style = list(color = "#999", weight = 0.5, opacity = 1)) %>% 
+  addGraticule(sphere = TRUE, style= list(color = "#777", weight = 1, opacity = 0.25)) %>% 
+  addPolygons(data = m.world,
+              weight = 1,
+              fillOpacity = 0.7,
+              fillColor = ~popcolor(pop_est)
+              )
+```
+
+```{r}
+m.asia <- ne_countries(continent = "asia", returnclass = "sf")
+
+leaflet(options = leafletOptions(crs = leafletCRS(crsClass = "L.Proj.CRS",
+                                                  code = "EPSG:102025",
+                                                  proj4def = "+proj=aea +lat_1=25 +lat_2=60 +lat_0=36 +lon_0=139 +x_0=0 +y_0=0 +datum=WGS84 +units=m +no_defs",
+                                                  resolutions = c(65536, 32768, 16384, 8192, 4096, 2048)), 
+                                 attributionControl = TRUE)) %>%
+  addPolygons(data = m.asia)
+```
+
+

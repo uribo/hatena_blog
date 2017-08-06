@@ -1,0 +1,67 @@
+---
+title: "Rのヘルプドキュメントに画像を表示して夢を広げる" 
+author: "Shinya Uryu"
+date: "2016年1月9日"
+output: 
+  md_document:
+    variant: markdown_github
+---
+
+```{r [SETTING], include = FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = FALSE, 
+                      message = FALSE, error = FALSE, warning = FALSE,
+                      fig.align = "center")
+```
+
+```{r, eval = FALSE, include = FALSE}
+library(remoji)
+```
+
+去年にこんな記事を見つけて、**オオコレハカッキテキダ**、みたいな印象を持ったきりでそのまま放置していたのでチラシの裏としてメモ。
+
+[Embedding images in R package help pages](http://blog.revolutionanalytics.com/2015/12/embedding-images-in-r-package-help-pages.html)
+
+パッケージのヘルプドキュメントに画像を表示させる方法、[以前からできた](http://romainfrancois.blog.free.fr/index.php?post/2010/04/03/embed-images-in-Rd-documents)らしいが（**R バージョン2.12から**）、これを実装している関数は少ない気がする。Hadleyも書籍「R Packages」の中で言及していなかったと思う。
+
+ちなみにRパッケージ作成時の指南書である「[Writing R Extensions](https://cran.r-project.org/doc/manuals/r-release/R-exts.html)」にはきちんとした[説明があった](https://cran.r-project.org/doc/manuals/r-release/R-exts.html#Figures)。きちんと読まないといけないな...。
+
+#### `r emoji("abc")` 例
+
+いくつかの関数はこれをサポートしている。
+
+```{r}
+?base64::img
+?viridis::viridis
+```
+
+#### `r emoji("wrench")` 実践
+
+要点として以下をあげる
+
+* `\figure`環境を利用する。`\if`コマンドで出力するフォーマット（HTML, PDF）に応じて図の種類を変更することもできる
+* Detailsフィールドに記載するのがお作法っぽい
+* 画像ファイルはman/figures/ 以下に置く
+* LaTeXのお作法に従い、ファイル名に空白とかがないようする
+* 図の拡張子は`.jpg`, `.jpeg`, `.pdf`, `.png` あるいは`.svg` （`.pdf`はHTMLには埋め込みできない、とか注意）
+
+```{r, eval = FALSE, echo = TRUE}
+#' @details
+#' \if{html}{
+#' \out{<div style="text-align: center">}\figure{indicate-gh-contribution.png}{options: style="width:750px;max-width:90\%;"}\out{</div>}
+#' }
+#' \if{latex}{
+#' \out{\begin{center}}\figure{indicate-gh-contribution.png}\out{\end{center}}
+#' }
+```
+
+https://github.com/uribo/motivator/commit/6aaa9ef760e032ed8ae80dd0603691aa809e789e
+
+この結果がこうなる。
+
+HTML
+
+PDF
+
+RStudioだと画面の中のパネルの一つにヘルプドキュメントを表示できるので、ヘルプを参照する機会が本当に多い。自分はR初心者なので関数の引数とかしょっちゅう忘れるので頻繁にヘルプを見ることになる。で、その時にExamplesを試すわけだけど作図系の関数の場合にはドキュメントの中で作図結果が表示されているとその手間が省けて大変嬉しい。
+
+シリパクの皆様におかれましては、ぜひドキュメントに画像を埋め込むことを検討してみてはいかがだろうか。今後、Rのパッケージで作図を行う関数の中でこのような手法が積極的に取り入れられていくことに期待。

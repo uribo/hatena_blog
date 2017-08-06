@@ -1,0 +1,52 @@
+---
+title: "StackoverflowやGitHubに書かれているコードを検証する関数"
+author: "Shinya Uryu"
+date: "2015年8月31日"
+output: 
+  md_document:
+    variant: markdown_github
+---
+
+最近、[ggplot2逆引きプロジェクト](http://qiita.com/tags/ggplot2逆引き)が熱い。これは、プログラミン関係のお悩み相談所として有名なStackoverflowに寄せられるRの作図パッケージ**`{ggplot2}`**に関する質問を翻訳して整理しようという企画。
+
+それをきっかけに、Stackoverflowを定期的に覗くようになったのだけど、ここに書かれているコード、試したことがない。なんでかというと、**コピペが面倒だから**。
+
+で、お気軽にコードが検証できるようになればR力が高まるのでは？と思いついて<span class="hlt_bf">Stackoverflowや各種プログラマー御用達サイトに挙げられているコードを実行できるような関数を書いた</span>。書きなぐりな感じが満載なのでコードの汚さとかはご勘弁。Stackoverflow以外にも、GitHubとQiitaに挙げられているコードなら動く。
+
+こんな風に使う。ソースコードはGistに置いてある。関数を動作させるために**`{dplyr}`**, **`{xml2}`**, **`{rvest}`**を利用する。
+
+```{r, include=FALSE}
+# Gistにあるソースコードを読み込む
+devtools::source_gist("https://gist.github.com/uribo/77ed332692bea5d821f2")
+```
+
+関数をまとめるか分けるか迷ったけど、とりあえずサイトごとに関数を分けた。基本は`retest_*`という形をとる。引数に、実行したいコードがある*url*と、そのページにある何番目のコードを実行するかを指定する引数(*rank*)がある。
+
+```{r 150831_retest_so}
+# このページにある解答例を検証
+url <- "http://stackoverflow.com/questions/21682089/how-to-use-expression-in-in-names-arg-function"
+retest_so(url, rank = 2)
+```
+
+当たり前だけど、作図までしてくれる。
+
+GitHub版。issuesの*url*を渡す。Rだったり、Rでないmarkupであったりするので、別途*lang*引数で指定できる（初期値は*R*）。
+
+```{r}
+url <- "https://github.com/hadley/dplyr/issues/587"
+retest_gh(url, 2, lang = "plain")
+```
+
+さいご、Qiita版。
+
+```{r}
+# このページの最初に書かれているコードを検証する
+url <- "http://qiita.com/uri/items/98b20d928a9d8c0645d2"
+retest_qt(url, rank = 1)
+```
+
+Gistを見てもらえばわかると思うが、一時ファイルを作成して、それにRコードとして保存し、`source`で読み込む、という風な流れ。コード実行後、一時ファイルは削除される。
+
+まだまだ手を入れるところは多いけどひと通り動いて満足。
+
+Enjoy!

@@ -1,0 +1,178 @@
+---
+title: "PDFの情報・文章をRでごっそり取得する" 
+author: "Shinya Uryu"
+date: "2016年2月27日"
+output: 
+  md_document:
+    variant: markdown_github
+---
+
+```{r [SETTING], include = FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = TRUE, 
+                      message = FALSE, error = FALSE, warning = FALSE,
+                      fig.align = "center",
+                      tidy = TRUE,
+                      tidy.opts = list(blank = FALSE, width.cutoff = 40))
+```
+
+```{r, eval = TRUE, include = FALSE}
+library(magrittr)
+library(remoji)
+```
+
+便利なRパッケージを見つけたのでメモがてら紹介しておきます。以前、Rを使ってPDF上のテキストを取得するパッケージとして**`{tm}`**パッケージを[紹介しました](http://uribo.hatenablog.com/entry/2015/11/29/140000)が、同様の機能をもった**`{pdftools}`**は以下の特徴があります。
+
+特徴
+
+1. PDFがもつ各種の情報やテキストを取得できる
+2. 日本語も問題なし
+3. PDFがロックされている場合、パスワードで開ける
+4. PDFを画像として出力できる
+
+開発者はrOpenSciの一員でもある[Jeroen Ooms](https://github.com/jeroenooms)です。
+
+https://github.com/ropensci/pdftools
+
+**`{tm}`**パッケージでは日本語が含まれるPDFを扱う際にはちょっとした工夫が必要でしたが、**`{pdftools}`**では日本語の出力も問題なく行うことができてちょっと感動しました。機能としては単純にPDFの情報を得る、ということとPDFを画像として出力する、ということです。
+
+### 使用例
+
+CRANに登録されているのでインストールしてきましょう。
+
+```{r}
+# install.packages("pdftools")
+library(pdftools)
+```
+
+### PDFの情報を得る
+
+**`{pdftools}`**パッケージのコアとなるのが、以下で実行する関数です。引数の*pdf*に指定したパスのPDFに対して該当する処理を実行します。
+
+```{r}
+# PDFのパスを用意しておく。
+#   例として、{zoo}パッケージに付属のPDFを用いる
+path <- system.file("doc/zoo.pdf", package = "zoo")
+```
+
+`pdf_info()`では、PDFがもつ情報を取得します。ページ数や保存された日時やメタ情報などがわかります。
+
+```{r}
+res.info <- pdf_info(pdf = path)
+
+# 取得した要素
+res.info %>% names()
+
+res.info$pages
+res.info$created
+res.info$keys$Creator
+```
+
+テキストマイニングなどで利用できそうなテキスト抽出の関数として`pdf_text()`があります。この関数では、PDF内のテキストを文字列として返します。ページごとに一つの要素にまとまっているのが特徴です。
+
+```{r}
+res <- pdf_text(path)
+res[1] %>% {
+  nchar(.) %>% print()
+  strtrim(., 300)
+}
+```
+
+また、対象のPDFに日本語が含まれていても問題なく
+
+PDF内で利用されているフォントを確認する`pdf_fonts()`関数もあります。該当するフォントがインストールされている場合、フォントファイルのパスを表示してくれるのが便利ですね。
+
+```{r}
+# {formattable}で表示形式を変更
+library(formattable)
+pdf_fonts(path) %>% 
+  formattable(list(embedded = formatter("span",
+                                        style = x ~ style(color = ifelse(x, "green", "red")),
+                                        x ~ icontext(ifelse(x, "ok", "remove"), 
+                                                     ifelse(x, "TRUE", "FALSE")))))
+```
+
+`pdf_toc()`はPDFの情報から、見出しだけを抽出する関数です。地味に嬉しい気がします。返り値はリストクラスオブジェクトとなっており、適当な処理で目次を再現することができそうです。
+
+```{r}
+res.toc <- pdf_toc(path)
+res.toc %>% class()
+
+library(purrr)
+# 章だけを抽出
+res.toc$children %>% map_chr(c("title"))
+# 節はどうする？？
+#   もうちょっと効率的な方法があるはず...
+res.toc$children[[2]]$children %>% map_chr("title")
+
+# 適当に取り出すだけなら...
+res.toc %>% unlist()
+```
+
+```{r defunct, eval=FALSE, echo=FALSE}
+res.toc %>% 
+  at_depth(1, map_if, is_list, c("title"))
+
+res.toc$children %>% map_at(c(1, 2), c("title")) %>% 
+  flatten() %>% 
+  at_depth(1, map_if, is_list, c("title"))
+
+res.toc %>% simplify_all() %>% unlist()
+
+# res.toc %>% purrr::when(map_chr, "title")
+# res.toc$children %>% map(c("children"))
+# res.toc %>% every(map_chr(c("title")))
+
+#   at_depth(1, map_if, is_list, map_df, ~.[c("group", "duration", "distance")]) %>% 
+
+# res.toc$children %>% at_depth(2, map, c("children"))
+```
+
+また`pdf_attachments()`という関数もありますが、PDFに付属するファイルの情報を取得するものと思われますが、手持ちのファイルではそのようなものがなかったので未検証です。
+
+```{r}
+pdf_attachments(path)
+```
+
+開くのにパスワードが必要なPDFでは、パスワードを指定する引数*opw*および*upw*があるので、そちらにパスワードを渡します。
+
+```{r}
+# 某申請書で埋め込まれていたフォント情報
+pdf_fonts("/Users/uri/Dropbox/LAB/Documents/助成/学振特別研究員/H27DC1(2)/20140512222337796申請書.pdf", upw = "aSdw8Y26G7") %>% 
+  dplyr::mutate(name = iconv(name, from = "cp932", to = "utf8")) %>% # フォント名が文字化けしていたので直してやる
+  formattable(list(embedded = formatter("span",
+                                        style = x ~ style(color = ifelse(x, "green", "red")),
+                                        x ~ icontext(ifelse(x, "ok", "remove"), 
+                                                     ifelse(x, "TRUE", "FALSE")))))
+```
+
+
+### PDFをビットマップとして出力する
+
+もう一つの機能として、PDFファイルのイメージをビットマップファイルとして出力する`pdf_render_page()`関数があります。この関数を利用するには[libpoppler](https://poppler.freedesktop.org)がインストールされている必要があるようですが、私の環境では何もしない状態で実行できました。出力の拡張子は`.png`（`png::writePNG()`）, `.jpg`（`jpeg::writeJPEG()`）, `.webp`（`webp::write_webp()`）となります。
+
+```{r}
+library(png)
+```
+
+```{r, eval = FALSE, echo = TRUE}
+bitmap <- pdf_render_page(path)
+writePNG(bitmap, "pdf_out.png")
+```
+
+引数でページ数やDPIの指定など細かな調節ができます。
+
+```{r, eval = FALSE, echo = TRUE}
+# 高解像度での出力。dpiの初期値は72
+bitmap <- pdf_render_page(path, page = 9, dpi = 250)
+writePNG(bitmap, "pdf_out2.png")
+```
+
+
+### `r emoji("computer")` 実行環境
+
+```{r}
+devtools::session_info() %$% packages %>% 
+  dplyr::filter(`*`  == "*") %>% 
+  dplyr::select(package, version, source) %>% 
+  knitr::kable(format = "markdown")
+```

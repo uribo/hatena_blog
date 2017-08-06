@@ -1,0 +1,63 @@
+---
+title: "Kaggleでも利用されている高圧縮ファイル形式7zをRで解凍する" 
+author: "Shinya Uryu"
+date: "2017年5月26日"
+output: 
+  md_document:
+    variant: markdown_github
+---
+
+```{r [SETTING], include = FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = TRUE, 
+                      message = FALSE, error = FALSE, warning = FALSE,
+                      fig.align = "center",
+                      tidy = TRUE,
+                      tidy.opts = list(blank = FALSE, width.cutoff = 40))
+```
+
+```{r, eval = TRUE, include = FALSE}
+library(magrittr)
+library(remoji)
+```
+
+たまたまKaggleの[Datasets](https://www.kaggle.com/datasets)をのぞいていたのだが、そこで`.7z`という見慣れない形式のファイルが提供されていた。容量はテスト用のファイルで1GBを超えている。大きい...。ダウンロードするにも時間がかかるのだけど、それよりも問題だったのは、この`.7z`圧縮ファイルを解凍する方法がわからないことだった（勉強不足なのでこの`.7z`というのを扱ったことがなかった）。
+
+Wikipediaによれば、「7z形式ではZIP形式に比べ高圧縮のファイルが作成できる」とある。なるほど、1GBを超えるような大規模ファイルはzipにするよりもこちらの方が都合が良さそうだ。
+
+で問題は、解凍方法。せっかくなのでRでやりたい。検索したらすぐに答えが見つかった。
+
+https://stackoverflow.com/questions/16096192/how-to-programmatically-extract-or-unzip-a-7z-7-zip-file-with-r
+
+**archive**パッケージを使うと良いとのと。
+
+**archive**パッケージは、[libarchive](http://www.libarchive.org)の機能を利用して多くの圧縮ファイルを解凍する関数を提供する。また解凍だけでなく、圧縮ファイルの作成も行える。CRANには登録されていないのでGitHub経由でインストールする必要がある。なお事前にlibarchiveもインストールしておく。
+
+```{r, results = 'hide'}
+library(archive)
+```
+
+圧縮ファイルを解答する関数は`archive_extract()`。圧縮ファイルのパスと解答先のディレクトリを引数に指定して実行する。すると指定したディレクトリに解凍されたファイルが保存される。
+
+```{r, eval = FALSE, echo = TRUE}
+archive_extract("~/Downloads/test.7z", "~/Downloads/test/")
+```
+
+圧縮ファイルにどのようなファイルが含まれているかは、対象のファイルを引数に取り、`archive()`を実行することで確認できる。こんな感じ。
+
+```{r, eval = FALSE, echo = TRUE}
+archive::archive("~/Downloads/test.7z")
+# # A tibble: 1,532 x 3
+#             path    size                date
+#            <chr>   <dbl>              <dttm>
+#  1         test/       0 2017-03-31 10:21:10
+#  2    test/1.jpg  648369 2017-03-31 10:20:08
+#  3   test/10.jpg  595322 2017-03-31 10:20:09
+# ...
+```
+
+
+めでたしめでたし。
+
+
+
+

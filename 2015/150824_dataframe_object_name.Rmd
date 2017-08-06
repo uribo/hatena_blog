@@ -1,0 +1,97 @@
+---
+title: "データフレームのオブジェクト名はどう決めていますか？"
+author: "Shinya Uryu"
+date: "2015年8月24日"
+output: 
+  md_document:
+    variant: markdown_github
+---
+
+Rで何らかの解析作業をおこなうとき、データフレームクラスのオブジェクトを使うことが多いと思う。その際、どういう名称のオブジェクトを作っているのか。自分はdf派だが、パイセンがdatにしていたり先日slack上で見た @hoxo_m さんのコードでもdatが使われていたりで、以外とマイナーなのか？と興味が出てきたので調べてみることにした。
+
+[https://twitter.com/u_ribo/status/632155439166128128:embed]
+
+### GitHubでの検索結果
+
+GitHubにあげられている拡張子`.r`あるいは`.Rmd`のファイルを対象に次のオブジェクト名を検索してみた。なお<span class="hlt_bf">関数内での定義や余計なファイルも含まれているので正確ではない</span>のでご注意。
+
+| name | hits | url |
+|------|-----:|-----|
+| dat | 7141件 | [URL](https://github.com/search?utf8=✓&q=%22dat%22+extension%3Ar+extension%3ARmd&type=Code&ref=searchresults) |
+| data | 73146件 | [URL](https://github.com/search?utf8=✓&q=%22data%22+extension%3Ar+extension%3ARmd&type=Code&ref=searchresults) |
+| df   | 14991件 | [URL](https://github.com/search?utf8=✓&q=%22df%22+extension%3Ar+extension%3ARmd&type=Code&ref=searchresults) |
+
+```{r, eval = FALSE, echo = FALSE, warning = FALSE}
+df_res <- data.frame(
+  name = c("dat", "data", "df"),
+  hits = c(7141, 73146, 14991))
+
+ggplot(df_res, aes(name, hits)) + 
+  geom_bar(stat = "identity", aes(fill = name)) +
+  scale_fill_Publication() +
+  theme_Publication()
+```
+
+[f:id:u_ribo:20150824125910p:plain]
+
+...これはやはりdata.frameのオブジェクト名以外のものが多く入っているためか？
+
+### Twitter上での声
+
+収集できた範囲で。鍵アカウントの人は文字だけ引用。
+
+[https://twitter.com/kazutan/status/632157380625629184:embed]
+
+> dfもdataもdatもオブジェクト名に使っていない。
+
+### dfはやめよう
+
+そんなことを気にしていたら寝耳に水な発言が。
+
+[https://twitter.com/dichika/status/632156029531262977:embed]
+
+`data()`はパッケージ内のデータセットを呼び出したりする際に使うので知っていたが、`df()`については知らかなった。というわけでオブジェクトを見つけ出す`apropos`を使って探してみる。
+
+```{r}
+apropos(what = c("^df$"))
+apropos("$dat$")
+apropos("^data$")
+```
+
+`df`はF分布用の関数であった。では、`df`と`data`はどこで使われているのだろう（`?df`とかやれば済む話だが、普段使わない関数`find`を使ってみる）。
+
+```{r}
+find(what = "df")
+find("data")
+```
+
+どちらもベースパッケージの**`{utils}`**だ。`df`はF分布用の関数である。使う機会は個人的には限られているが、ベースパッケージの関数名と衝突してしまうのはよろしくない気がする。
+
+### Slackで有識者に聞いてみた
+
+> Rでデータフレームを作成する際、オブジェクト名はどのようにしていますか？
+> 候補: df, dat, data, other
+
+上記の設問に対し、リスペクトできるRユーザーに投票してもらった結果...（複数回答あり）。
+
+```{r, eval = FALSE, echo = FALSE}
+df_vote <- data.frame(
+  name = c("dat", "data", "df", "other"),
+  votes = c(0, 1, 2, 9))
+ggplot(df_vote, aes(name, votes)) + 
+  geom_bar(stat = "identity", aes(fill = name)) +
+  scale_fill_Publication() +
+  theme_Publication()
+```
+
+[f:id:u_ribo:20150824125842p:plain]
+
+other派な人たちは
+
+* `d_*`
+* `df_*`
+
+とすることが多いらしい（アスタリスクの部分にはデータの構造を示す名称が入る）。なるほど。
+
+`df`では上述の関数名と混同してしまうし、ファイル名やデータソースからデータセットの中身を推測するよりも、具体的にデータを表わす名称にしたほうがが良さそうだ。<span class = "hlt_bf">**これからは`df_*`でいく所存**</span>。
+

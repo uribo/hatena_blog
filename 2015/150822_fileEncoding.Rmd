@@ -1,0 +1,125 @@
+---
+title: "文字化けこわい、こわくない？？"
+author: "Shinya Uryu"
+date: "2015年8月22日"
+output: 
+  md_document:
+    variant: markdown_github
+---
+
+```{r, include = FALSE, cache = FALSE}
+opts_chunk$set(error = TRUE)
+```
+
+[http://twitter.com/u_ribo/status/622969270364835840:embed]
+
+Rで解析していると文字化けに遭遇することがある。文字化けは現代妖怪の一種。怖い...って思っていた時期が私にもありました。でも、いい大人なのでお化けとも正面から向き合っていきたいと思う。というメモ。
+
+### R内で扱える文字コード
+
+Rで利用可能な文字コードは`iconvlist()`で出力できる、と手持ちの「R言語逆引きハンドブック」に書いてあった。ヘルプを見ながら試してみる。`iconvlist()`はRで扱う文字コードを文字列ベクトルで収めている（変換には`iconv()`を使う）。どれだけの文字化けがRで扱えるのか数を数えてみる。
+
+```{r}
+length(iconvlist())
+```
+
+こんなにあるのか...。世界中で使われている文字コードなのでまあ当然か、とも思いつつ、この中で日本語と関係しそうなものがあるか確認。
+
+```{r}
+encode.jp <- c("EUC-JP", "ISO-2022-JP", "SJIS", "SHIFT_JIS", "CP932", "UTF8")
+is.element(encode.jp, iconvlist())
+```
+
+きちんと対応している。
+
+Rの関数の多くは、この文字コード処理を行う引数を備えているので、「文字化け」に出くわしたとしても適当な引数でエンコードを指定すれば良い。
+
+### 日本語エンコーディング表形式のファイル
+
+個人的によくお化けが出てくるポイント。WindowsとMac（UNIX）でエンコードが異なるので注意が必要。大抵の場合、ファイルの出処がWindowsなら`cp932`（いわゆる`SJIS`）、Macなら`UTF8`を引数*fileEncoding*で指定すれば大丈夫。
+
+```{r}
+# Mac でWindows で作ったファイルを読み込む... 引数指定なし -> 👻
+read.table(file = "demo.txt")
+# fileEncodingでcp932を指定 -> 💫
+read.table(file = "demo.txt", 
+           header = TRUE,
+           fileEncoding = "cp932")
+# Windows にて Mac で作られたファイルを読み込む場合は UTF8を 指定
+read.table(file = "demo_mac.txt",
+           header = TRUE,
+           fileEncoding = "UTF8")
+```
+
+次にパッケージを使ったデータ読み込みの場合。**`{data.table}`**と**`{readr}`**、**`{readxl}`**の場合。**`{data.table}`**は読み込みの段階で文字化けしているのだけど、後に変換してしまえば問題ない。**`{readr}`**は読み込みの段階でエラーとなってしまうのでなんかダメ。あれこれ試してみたけど、なんだか負けた感がある。
+
+```{r}
+# {data.table}... 表形式データの読み込み関数 fread はエンコードに関する引数がない
+data.table::fread(input = "demo.txt")
+data.table::fread(input = "demo.txt") %>% 
+  dplyr::mutate(var1 = iconv(var1, from = "cp932", to = "utf8"))
+
+# {readr}... 【151006追記】 localeを設定し、read_delimを使えばおｋ
+readr::read_delim("demo.txt", 
+                locale = readr::locale(encoding = "cp932"),
+                delim = "\t")
+
+# {#readxl}... 何も指定しなくても良い!!
+readxl::read_excel(path = "demo.xlsx")
+```
+
+### 日本語文字コードでエンコードされたWebサイトや日本語含むURL
+
+http://www.sinfonica.or.jp/kanko/estrela/refer.html
+
+趣味でUTF8でないWebサイトのURLを収集している。上記のページもそうなのだが、こうしたページは結構多い。加えて、日本のWikipediaのページはURLに日本語を使用している
+
+ex. [https://ja.wikipedia.org/wiki/がっこうぐらし!](https://ja.wikipedia.org/wiki/%E3%81%8C%E3%81%A3%E3%81%93%E3%81%86%E3%81%90%E3%82%89%E3%81%97!)
+
+↑こういうリンクも都度エスケープする必要がある。
+
+そのままスクレイピングすると良くないので、こういう場合にも対応できる大人を目指したい。
+
+```{r}
+# 文字化けの闇に包まれる
+"http://www.sinfonica.or.jp/kanko/estrela/refer.html" %>% 
+  xml2::read_html %>% rvest::html_text %>% substring(1, 50)
+
+# xml2::read_htmlの引数encodingでSJISを指定
+"http://www.sinfonica.or.jp/kanko/estrela/refer.html" %>% 
+  xml2::read_html(encoding = "SJIS") %>% 
+  rvest::html_text() %>% 
+  substring(1, 50)
+
+xml2::read_html(x = "http://had0.big.ous.ac.jp/plantsdic/angiospermae/dicotyledoneae/sympetalae/compositae/sirotaegiku/sirotaegiku.htm", encoding = "Shift_JIS") %>% 
+  rvest::html_text() %>% 
+  substring(1, 50)
+```
+
+URLをエスケープする関数もある。
+
+```{r}
+url <- "https://ja.wikipedia.org/wiki/都道府県"
+xml2::url_escape(url)
+xml2::url_escape(url) %>% xml2::url_unescape()
+```
+
+### 所感
+
+大文字と小文字を区別しない（ハイフン、アンダースコア、ドットの違い... ？）
+
+対処する方法があるはずなので、文字化けに遭遇しても慌てず恐れず、落ち着いて処理していきたい。
+
+いつものアレを貼っておく。忘れてはいけない。
+
+[https://github.com/hadley/dplyr/issues/339:embed:cite]
+
+[http://twitter.com/u_ribo/status/622978666482397184:embed]
+
+#### 参考
+
+* 改訂２版R言語逆引きハンドブック 石田基広 (2014). シーアンドアール研究所.
+* [data.table](https://oku.edu.mie-u.ac.jp/~okumura/stat/datatable.html)
+* [文字コードとエンコーディング (1)](http://x68000.q-e-d.net/~68user/webcgi/char-code-1.html)
+* [Rで不正なマルチバイト文字とか言われたら・・・？ - kingqwert's diary](http://kingqwert.hatenablog.com/entry/20120618/p1)
+* [Windowsで日本語名のshpファイルを読み込む - Technically, technophobic.](http://notchained.hatenablog.com/entry/2015/05/28/004537)

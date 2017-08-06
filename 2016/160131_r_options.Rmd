@@ -1,0 +1,137 @@
+---
+title: "RでAPI暮らしをしていくための環境変数の管理" 
+author: "Shinya Uryu"
+date: "2016年1月31日"
+output: 
+  md_document:
+    variant: markdown_github
+---
+
+```{r [SETTING], include = FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = TRUE, 
+                      message = FALSE, error = FALSE, warning = FALSE,
+                      fig.align = "center",
+                      tidy = TRUE,
+                      tidy.opts = list(blank = FALSE, width.cutoff = 40))
+```
+
+```{r, eval = TRUE, include = FALSE}
+library(remoji)
+library(magrittr)
+```
+
+今週はセキュリティ関係の記事をよく見かけた。...気がした。これとか。
+
+[クラウド破産しないように git-secrets を使う - Qiita](http://qiita.com/pottava/items/4c602c97aacf10c058f1)
+
+RでもウェブAPIを利用するパッケージが増えてきて（ **`{RGA}`**, **`{slackr}`**, **`{twitteR}`**, **`{qiitar}`**などなど）、**誰もがAPI暮らしを夢見ている**。
+
+そんなわけで**API生活の質を高めるためのRで環境変数を設定する方法と注意点について自分の中で整理しておきたい**。
+
+### `r emoji("wrench")` Sys.setenv()とOptions()関数の使い分け
+
+まず、Rで利用者が関数の挙動を制御する関数として`Sys.setenv()`と`options()`の２つがある。２つの関数の違いは微妙なところで、うまく説明できないけど個人的には**`options()`が関数やパッケージの挙動を制御する値、`Sys.setenv()`がユーザーの設定として用意しておく値**という使い分けをしている。
+
+`Sys.setenv()`関数は環境変数を定義する関数で、`Sys.getenv()`関数と対をなしている。環境変数って何かというとRのパッケージを管理するパスや諸々のプログラムについて指定しているものみたいな。現在の環境設定を確認するには`Sys.getenv()`を実行する。するとだらだらと環境設定が表示される。自分の場合は
+
+```{r}
+# 例えば
+Sys.getenv(c("R_HOME", "R_LIBS_USER", "R_PLATFORM"))
+
+# 現在設定している環境変数
+names(Sys.getenv()) %>% head(10)
+```
+
+のようになっている。環境変数を変更するには`Sys.setrenv()`を使う。ただパスとかR本体の挙動を変えてしまうような項目があるので、適当な値を与えるとあまりよくない。
+
+```{r, echo = TRUE, eval = FALSE}
+Sys.getenv("LANGUAGE")
+# En
+あ
+# Error: object 'あ' not found
+
+Sys.setenv(LANGUAGE = "Ja")
+あ
+# エラー:  オブジェクト 'あ' がありません
+```
+
+
+今度は`options()`。`options()`関数は`digits()`などの設定で使ったことがある人が多いと思う。現在の設定を確認するためには`getOptions()`あるいは`options()`関数にオプションとなる項目名を渡す。また、オプションの一覧は`.Options()`というオブジェクトに保存されている。
+
+```{r}
+# 現在のオプション項目
+names(.Options) %>% head(10)
+
+getOption(x = "width")
+
+getOption("defaultPackages")
+getOption("prompt")
+```
+
+`options()`でオプションの値を変えることができる。
+
+```{r}
+# 数値の表示桁数を制御するオプション
+options("digits")
+pi
+
+# 変更する
+options(digits = 10)
+pi
+```
+
+オプションで設定しておくと、都度関数の引数として機能するものもあるので、使い方によっては便利。例えば、データフレームを作成する`data.frame()`関数では文字列をfactor型としているが`options()`で既定値を指定しておくとそれを防ぐことができる。ただ個人的には関数の引数の挙動を操作するのは関数内で行いたいのであまり設定していない。
+
+```{r}
+df_pri <- data.frame(cure = c("キュアフローラ", "キュアマーメイド", "キュアトゥインクル", "キュアスカーレット"))
+df_pri$cure %>% class()
+
+options(stringsAsFactors = FALSE)
+df_pri <- data.frame(cure = c("キュアフローラ", "キュアマーメイド", "キュアトゥインクル", "キュアスカーレット"))
+df_pri$cure %>% class()
+```
+
+オプション値はパッケージの関数によって与えられているものもある。
+
+```{r, warning = FALSE, message = FALSE}
+# パッケージが設定している項目もある
+names(.Options) %>% grep("^dplyr", ., value = TRUE)
+
+library(dplyr)
+names(.Options) %>% grep("^dplyr", ., value = TRUE)
+```
+
+### `r emoji("+1")` 関数の仮引数として設定しておくと便利
+
+というわけで本題。
+
+Rで各種ウェブAPIをラップしたパッケージはウェブサービスが提供するAPIを使用したり制限回数を管理したりするためのAPIキーなりアクセストークンを発行したりしている。例えばR上でGoogle Analytics APIを使うための**`{RGA}`**パッケージでは認証を行う`authorize()`関数の引数で[以下の値を用意している](https://github.com/artemklevtsov/RGA/blob/4b2df4ba7256d530e229932a669265b37e9fc165/R/auth.R#L143-L147)。
+
+```{r}
+formals(RGA::authorize)
+```
+
+ここで注目すべきなのはいくつかの引数の仮引数の値として`getOption()`で与えられる項目があることだ。こうした仮引数を用意しておくことで、利用者が`options()`として該当する値を与えている場合には関数内で入力する手間を省くことができる。また、外部にコードを公開する際もその値を隠すことができる。
+
+```{r, echo = TRUE, eval = FALSE}
+# options()で設定していない場合（デフォルト）
+#   それぞれの引数で値を渡す必要がある
+RGA::authorize(username      =  "<user name>", 
+               client.id     = "<client id>", 
+               client.secret = "<client secret key>")
+
+# options()で値が設定されている場合
+#   関数内の仮引数がそのまま使われるので省略可能
+RGA::authorize()
+```
+
+またR上でSlackへ投稿ができる**`{slackr}`**パッケージでは設定を読み込むための`slackr_setup()`関数があって、今度は`Sys.setenv()`の値を参照するように[なっている](https://github.com/hrbrmstr/slackr/blob/master/R/slackr_setup.r#L54-L59)。
+
+他にもいろいろなパッケージでこうした設定を見かける。`getOptions()`で値を得るか、`Sys.setenv()`から読み込んでくるか、というのは開発者によって違っているので曖昧な気がする。自分はウェブAPIのためのAPIキーなどの管理は`Sys.setenv()`でやっていきたい。
+
+というわけで、こうした値は*.Rprofile*に書いておくといちいち入力する必要がなくなるので便利。その一方で、GitHubに環境設定の値を含んだ（なんかのパスワードとか暗証番号とか）をあげちゃうとちょっと危険。まあ、R程度で冒頭のクラウド破産なんてことはしないだろうけど（`r emoji("checkered_flag")`フラグ。
+
+### `r emoji("books")` 参考
+
+* 改訂2版 R言語逆引きハンドブック
+* [The options mechanism in R - Burns Statistics](http://www.burns-stat.com/the-options-mechanism-in-r/)

@@ -1,0 +1,87 @@
+---
+title: "RMarkdownファイルの中でSQLを実行する際のtips" 
+author: "Shinya Uryu"
+date: "2017年2月18日"
+output: 
+  md_document:
+    variant: markdown_github
+---
+
+```{r [SETTING], include = FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = FALSE, 
+                      message = FALSE, error = FALSE, warning = FALSE,
+                      fig.align = "center",
+                      tidy = TRUE,
+                      tidy.opts = list(blank = FALSE, width.cutoff = 40))
+```
+
+```{r, eval = TRUE, include = FALSE}
+library(magrittr)
+library(remoji)
+```
+
+[公式ページ](http://rmarkdown.rstudio.com/authoring_knitr_engines.html)に書いている内容なのだけど、覚え書きとしてメモしておく。
+
+RMarkdownファイルでSQLを実行させるという状況があったとき、**`{DBI}`**や**`{odbc}`**
+といった各種のデータベース接続用パッケージや**`{dplyr}`**の接続関数を利用してデータを呼び出しても良いけど、実はチャンクコード内でSQL直書きできるという話。
+
+過去に
+
+http://uribo.hatenablog.com/entry/2016/02/13/093531
+
+を書いたが、こっちの方がより簡単。
+
+まずはデータベースへの接続を行う。
+
+<pre class="markdown"><code>&#96;&#96;&#96;{r}
+library(DBI)
+con <- dbConnect(odbc::odbc(), "MySQL")
+&#96;&#96;&#96;
+</code></pre>
+
+データベースへ接続された状態がconオブジェクトに保存された。このコネクションを利用して、RMarkdown内で生SQLを実行させていく。肝心なのは**チャンク内でエンジンをデフォルトの`r`ではなくて`sql`にしておくこと**。そして**チャンクオプションの`connection`にconオブジェクトを指定すること**の2点。
+
+<pre class="markdown"><code>&#96;&#96;&#96;{sql, connection = con, max.print = 10}
+SELECT * FROM mtcars
+&#96;&#96;&#96;
+</code></pre>
+
+出力件数はSQLのLIMITを使っても良いし、チャンクオプションの`max.print`で制御しても良い。
+
+<pre class="markdown"><code>&#96;&#96;&#96;{sql, connection = con, output.var="sql.mtcars"}
+SELECT * FROM mtcars
+&#96;&#96;&#96;
+</code></pre>
+
+のように`output.var`オプションを使うとSQLで取得したデータをRオブジェクトとして扱えるようになるので便利。一方でRオブジェクトの値をSQLチャンクに渡すことも可能で、その際は以下のようなコードを書く。手順としては、Rオブジェクトを作り、SQLチャンク内でSQLに引き渡すRオブジェクト名の前に`?`をつけるだけ。
+
+<pre class="markdown"><code>&#96;&#96;&#96;{r}
+limit.n <- 7
+&#96;&#96;&#96;
+</code></pre>
+
+<pre class="markdown"><code>&#96;&#96;&#96;{sql, connection = con}
+SELECT * FROM mtcars LIMIT ?limits
+&#96;&#96;&#96;
+</code></pre>
+
+### コネクションを固定する
+
+都度SQLチャンクに`connection`を指定するのも手間なので、接続状態を維持しておきたいという時には`knitr::opts_chunk()`の値にコネクションを残しておけば良い。こうしておくことでSQLチャンクでは常にconnectionで参照しているRオブジェクトを対象とするようになるのでconnectionを書く必要がなくなる。
+
+<pre class="markdown"><code>&#96;&#96;&#96;{r}
+library(DBI)
+con <- dbConnect(odbc::odbc(), "MySQL")
+knitr::opts_chunk$set(connection = "con")
+&#96;&#96;&#96;
+</code></pre>
+
+ちなみにknitrの言語エンジンでは、SQL以外にも以下の言語が実行できる環境が整っている。
+
+- Python
+- SQL
+- Bash
+- Rcpp
+- Stan
+- JavaScript
+- CSS

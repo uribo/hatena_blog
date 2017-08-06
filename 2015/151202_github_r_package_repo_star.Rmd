@@ -1,0 +1,207 @@
+---
+title: "GitHub API(JSON)を叩いて学ぶRでのリスト操作とストーキング事情（2015年版）"
+author: "Shinya Uryu"
+date: "2015年12月1日"
+output: 
+  md_document:
+    variant: markdown_github
+---
+
+```{r [SETTING], include = FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = TRUE, 
+                      message = FALSE, error = FALSE, warning = FALSE,
+                      fig.align = "center")
+```
+
+```{r, eval = TRUE, include = FALSE}
+library(remoji)
+```
+
+**[R Advent Calendar 2015](http://qiita.com/advent-calendar/2015/r-rstudio)の二日目です。**
+
+昨日は表形式のデータをR上で扱いやすく、さらに可視化やモデリングの関数との相性が良いtidy形式なデータフレームについての[話をしました](http://uribo.hatenablog.com/entry/2015/12/01/055000)。昨日が表形式なら、今日はRでのデータ形式として主要なもう一つの形式、**リスト形式のオブジェクトを扱ってみたいと思います**。
+
+私はGitHubが（進捗的な意味で）好きで、見つけたR関係のパッケージには割りと星をつけています（2015-12-01の時点で[725のリポジトリ数](https://github.com/stars/uribo)）。GitHubには既存のRパッケージでなく、これからCRANに登録されるであろう原石のようなパッケージがあったりします。そういうものを見つけてはストーキングの対象に加えているわけです。
+
+自分がスターをつけたリポジトリの情報は、以下のようなURLでGitHubのAPIを叩けば得ることができます。
+
+https://api.github.com/users/uribo/starred
+
+JSONフォーマットです。表形式では無いデータですので、Rではリストとして扱われます。
+
+表形式でないデータの操作については、今週末の[Japan.R 2015](https://atnd.org/events/71243)でうさぎさんこと@sinhrks   さんが講演してださるのですが、それはそれとして、私は私で浅はかな知識の限りであれこれやりたいと思います。
+
+なお今回の内容は
+
+http://renkun.me/rlist-tutorial/Examples/GitHub-API.html
+
+このページにある情報でほとんどのことができてしまいます。他にもリストの扱いを容易にするための関数の使い方についてまとまっているので、どうぞご参考ください。
+
+## `r emoji("dart")` GitHub APIからR上にデータを取り込む
+
+今回使用するパッケージを読み込みます。
+
+```{r}
+library(rlist)
+library(magrittr)
+library(formattable)
+```
+
+GitHub APIで取得できる情報が100リポジトリごとに提供されているので、今回は８つ分のページを用意します。
+
+```{r}
+# api ref. https://developer.github.com/v3/activity/starring/
+# 更新があったリポジトリの順番、100リポジトリごと
+max_page <- 8
+api_url <- "https://api.github.com/users/uribo/starred?per_page=%d&sort=updated&page=%d" %>%
+  sprintf(100, 1:max_page)
+api_url
+```
+
+このような配列を用意して、R上にJSONファイルを読み込ませます。使用するのは **`{rlist}`**パッケージです。**`{rlist}`**のおさらいとして、まずは１ページ分の情報を取得しましょう。
+
+```{r}
+repo <- "https://api.github.com/users/uribo/starred?per_page=1&sort=updated&page=1" %>% 
+  list.load("json") %>% 
+  list.ungroup()
+
+repo %>% {
+  print(list.names(.))
+  list.count(.)
+}
+```
+
+取得した情報は次のような配列になっています。ownerの中にさらに情報がネストされています。
+
+* id
+* name
+* full_name
+* ...
+* owner
+    * login
+    * id
+    * avatar_url
+    * ...
+    * site_admin
+* ...
+* default_branch
+
+先ほど用意したURLを渡して、Rに取り組みましょう。`list.load()`を使います。
+
+```{r}
+repos <- api_url %>% 
+  list.load(type = "json") %>% 
+  list.ungroup()
+```
+
+## `r emoji("hammer")` リストの操作
+
+リストについて操作を加えます。こういったリスト操作は **`{rlist}`**の得意とするところです。リスト版の **`{dplyr}`** という感じでしょうか。以下のような操作を行います。
+
+* `list.filter()` 絞り込み: 今回対象にしたいのはR言語で書かれたリポジトリなので、対象を絞り込みます
+* `list.select()` 選択: リストの要素が多いため、必要なものだけを使えるようにします
+* `list.sort()` 並び替え: リストの並びを入れ替えます
+* `list.update()` 新たな要素の追加: CRANに登録されているパッケージかどうかの真偽値を与えます
+* `list.map()` 抽出: リストから値を取り出します。ベクトル形式で帰り値を得たい時には`list.mapv()`とします
+
+```{r}
+# CRANに登録されているパッケージ名のベクトルを作成しておきます
+pkg_name <- available.packages() %>% data.frame() %$% Package %>% as.vector()
+
+repos %<>% 
+  list.filter(!fork, language == "R") %>% 
+  list.select(name, owner = owner$login, description, stargazers_count, open_issues_count) %>% 
+  list.sort(-stargazers_count) %>% 
+  list.update(CRAN = ifelse(name %in% pkg_name, TRUE, FALSE))
+```
+
+`r repos %>% list.count()`リポジトリが該当しました。
+
+一覧表を作るために、リストの内容をデータフレームオブジェクトにしましょう。リストに格納されている各要素を`list.mapv()`で取り出し、データフレームの変数として代入します。つけられている星の数が多い15のリポジトリだけを抽出します。
+
+```{r}
+df_gh_star <- data.frame(name   = list.mapv(repos, name) %>% list.take(15),
+                         owner  = list.mapv(repos, owner) %>% list.take(15),
+                         star   = list.mapv(repos, stargazers_count) %>% list.take(15),
+                         issues = list.mapv(repos, open_issues_count) %>% list.take(15),
+                         CRAN   = list.mapv(repos, CRAN) %>% list.take(15))
+```
+
+テーブルになったので、出力してみましょう。**`{rlist}`**と同じパッケージの開発者であるrenkun-kenの**`{formattable}`**を使います。
+
+```{r, results = 'asis'}
+df_gh_star %>% head(10) %>% 
+  formattable(
+  list(owner  = formatter("span", 
+                          style = x ~ ifelse(x == "hadley", style(color = "darkorchid", font.weight = "bold"), 
+                                             ifelse(x == "rstudio", style(color = "royalblue", font.weight = "bold"), NA))),
+       star   = color_tile("white", "greenyellow"),
+       issues = color_bar("pink", 0.2),
+       CRAN   = formatter("span", 
+                          style = x ~ style(color = ifelse(x, "forestgreen", "tomato")), 
+                          x ~ icontext(ifelse(x, "ok", "remove"), ifelse(x, "Yes", "No")))
+))
+```
+
+若干、starとissuesの数が実際の値とずれている気がしなくもないですが...まあよしとしましょう `r emoji("smile_cat")`
+
+## `r emoji("gift")` この開発者がすごい2015
+
+[去年もやっていた](http://qiita.com/uri/items/ce711ee6da76a1e11ca5)ので、今年はGitHubでストーキングの対象になっているパッケージの開発者の方々についてこの場で公開してみたいと思います。年の瀬ですしお寿司。
+
+有名なパッケージと、ストーキングの理由について簡単に書いておきます。敬称略。
+
+* [@renkun-ken](https://github.com/renkun-ken/)... 日本人のR利用者にも人気のある開発者の一人です。今回使わせていただいた**`{rlist}`**や **`{formatrable}`**だけでなくパイプ処理を行う **`{pipeR}`**も有名です。
+* [@hadley](https://github.com/hadley)... 神なので。今年も **`{purrr}`** や **`{multidplyr}`** といった新しいパッケージを世に出して信者たちに救いを与えたそうな。
+* [@yutannihilation](https://github.com/yutannihilation)... 今年はこの人の年でした。**`{chartist}`**、**`{estatapi}`**、**`{qiitr}`**などのパッケージがあります。ブログもストーキングしていますが未だに名称を覚えられません（え。
+* [@dichika](https://github.com/dichika)... ジャパニーズシリパク。 **`{sinchokur}`**, **`{doudesuka}`**, **`{jaguchi}`**などのパッケージがあります。**`yeah::doudesuka()`を.Rprofileに追加したら、[knitの際に辛くなった](https://github.com/uribo/dotfiles/commit/848ac386daeebf6ecd1515e8dfcdc645aa4f60a7)のもいい思い出です。**
+* [@hoxo-m](https://github.com/hoxo-m)... **`{dplyrr}`** **`{lambdaR}`**など、世界のRパッケージ開発者に引けを取らないパッケージを開発されています。中でも**`{pforeach}`**が超便利で使っています。CRANにあげてくれよなー、頼むよー。
+* [@kos59125](https://github.com/kos59125) ... typoを指摘してくれる**`{DYM}`**や並び替えをよしなにしてくれる**`{naturalsort}`**など利用者の視点になって、あったら嬉しい、渋いパッケージを作ってくれています。**`{DYM}`**は[.Rprofileで設定しておく](https://github.com/uribo/dotfiles/commit/be2a4f8ca7e8b5277dfbd137ac7417738c36c445)のがおすすめです。
+* [@sinhrks](https://github.com/sinhrks)... ggplot2の拡張パッケージである**`{ggfortify}`**が便利でよく使わせてもらっています。
+* [@gaborcsardi](https://github.com/gaborcsardi)... ユーティリティ系のパッケージを数多く開発されています。**`{seer}`**、**`{gh}`**など。
+* [@timelyportfolio](https://github.com/timelyportfolio)... D3.js とRを連携させたパッケージを中心に開発をされています。 **`{svgPanZoom}`**、**`{d3vennR}`** など。
+* [@hrbrmstr](https://github.com/hrbrmstr)... 師匠です。Rだけでなく、外部サービスと連携させたパッケージ、地図を作成するパッケージなどが豊富です。**`{slackr}`** **`{docxtractr}`**、**`{ggalt}`**、**`{lineworkmaps}`**などなど。
+
+紹介しきれませんでしたが、以下のパッケージもおすすめです。気になるものがありましたら、ぜひGitHubのページを見てください
+
+ * https://github.com/gastonstat/colortools
+ * https://github.com/baptiste/gridextra
+ * https://github.com/cboettig/knitcitations
+ * https://github.com/mtennekes/tmap
+ * https://github.com/paulhendricks/describer
+ * https://github.com/kaz-yos/tableone
+ * https://github.com/sailthru/tidyjson
+ * https://github.com/leeper/colourlovers
+ * https://github.com/sckott/cowsay
+ * https://github.com/xfim/ggmcmc
+ * https://github.com/stefano-meschiari/latex2exp
+ * https://github.com/sjmgarnier/viridis
+ * https://github.com/dgrtwo/broom
+ * https://github.com/ropensci/taxize
+ * https://github.com/dill/emoGG
+ * https://github.com/norimune/glmmstan
+ * https://github.com/richfitz/remoji
+ * https://github.com/dgrtwo/snippr
+ * https://github.com/renkun-ken/formattable
+ 
+GitHub上のRパッケージをまとめる、通称[gepuro task view](http://rpkg.gepuro.net/topic)というのもあります。新たにRパッケージを探したい方はこちらが良いかもしれません。
+
+
+
+というわけで、R Advent Calendar 明日は kaneshin さんです。よろしくお願いします。
+
+-----
+
+```{r, eval=FALSE, echo=FALSE}
+tmp <- data.frame()
+tmp1 <- fromJSON(repos[1], simplifyDataFrame = tmp)
+tmp2 <- fromJSON(repos[2]) %>% as.data.frame()
+tmp3 <- fromJSON(repos[3])
+rbind(tmp1, tmp2) %>% dim()
+
+fromJSON(repos[1]) %>% dim() # 100 67
+
+fromJSON(repos[1]) %>% bind_rows(fromJSON(repos[2])) -> tmp
+
+# https://cran.r-project.org/web/packages/jsonlite/vignettes/json-apis.html
+```

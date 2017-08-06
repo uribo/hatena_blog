@@ -1,0 +1,88 @@
+---
+title: "estatapiパッケージで読み込めないデータの取得を諦めない" 
+author: "Shinya Uryu"
+date: "2017年5月12日"
+output: 
+  md_document:
+    variant: markdown_github
+---
+
+```{r [SETTING], include = FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = TRUE, 
+                      message = FALSE, error = FALSE, warning = FALSE,
+                      fig.align = "center",
+                      tidy = TRUE,
+                      tidy.opts = list(blank = FALSE, width.cutoff = 40))
+```
+
+```{r, eval = TRUE, include = FALSE}
+library(magrittr)
+library(remoji)
+library(pumpkin.seeds)
+```
+
+先日、**estatapi**パッケージを使って政府統計の総合窓口 e-statが提供する統計データの取得を行おうとしました。
+
+```{r}
+library(tidyverse)
+library(estatapi)
+df.list <- estat_getDataCatalog(appId = Sys.getenv("ESTAT_TOKEN"), 
+                                          searchWord = "自然公園")
+
+df.tgt <- df.list %>% dplyr::filter(NAME == "1_自然公園の利用者の推移")
+
+df.tgt %>% use_series(`@id`)
+```
+
+```{r, eval = FALSE, echo = TRUE}
+estat_getStatsData(Sys.getenv("ESTAT_TOKEN"),
+                             statsDataId = "000006926486")
+```
+
+検索キーワードに「自然公園」を指定し、統計データの一覧を取得します。その後、データの参照に必要なidを`estat_getStatsData()`に指定して実行するとエラーになります。idはあっているはずなのにナンデ!?
+
+パッケージの開発者 id:yutannihilation さんが返信くださいました。
+
+https://twitter.com/yutannihilation/status/862312361817853952
+
+e-stat APIで取得できるデータは`estat_getStatsList()`! APIで取れないデータは`estat_getDataCatalog()`!!
+
+というわけでRを使ったデータ取得を諦め... ませんでした。
+
+`estat_getDataCatalog()`を実行して返ってくるデータフレームには*URL*という変数があります。これはデータダウンロードに利用されるURLで、このURLにアクセスすることで対象のデータファイルがダウンロードされます。つまり**estatapi**の関数にはないですが、このURLを利用すればファイルのダウンロードが可能になるわけです。実際に試してみましょう。ファイルの拡張子についての情報もまた*FORMAT*という変数に保存されています。
+
+```{r, eval = FALSE, echo = TRUE}
+download.file(df.tgt$URL[1],
+              paste0("dl_file", ".", tolower(df.tgt$FORMAT[1])))
+```
+
+RからAPIでダウンロードできないe-Statのデータをダウンロードすることができました。めでたしめでたし。
+
+というか、**httr**でバイナリデータを取得してそれを読み込ませればファイルをダウンロードしなくて済むのでは? と思いきや、それはできなかった。
+
+https://github.com/tidyverse/readxl/issues/278
+
+```{r, eval = FALSE, echo = FALSE}
+res <- httr::GET("http://www.e-stat.go.jp/SG1/estat/GL08020103.do?_xlsDownload_&fileId=000006926486&releaseCount=1")
+
+
+# OK
+httr::content(res, encoding = "cp932", as = "raw") %>% 
+  writeBin(con = "~/Desktop/tmp2.xls")
+
+# 普通にダウンロードしてきても良い
+download.file("http://www.e-stat.go.jp/SG1/estat/GL08020103.do?_xlsDownload_&fileId=000006926486&releaseCount=1",
+              "~/Desktop/tmp.xls")
+# trying URL 'http://www.e-stat.go.jp/SG1/estat/GL08020103.do?_xlsDownload_&fileId=000006926486&releaseCount=1'
+# Content type 'application/octet-stream;charset=EUC-JP' length 76288 bytes (74 KB)
+# ==================================================
+#   downloaded 74 KB
+
+readBin(httr::content(res, encoding = "EUC-JP", as = "raw"), "character") # \xd0\xcf\021\u0871\032\xe1
+'\xd0\xcf\021\u0871\032\xe1'
+'\xd0\xcf\021\71\032\xe1'
+rawToChar(httr::content(res, encoding = "EUC-JP", as = "raw"))
+```
+
+
+期待。

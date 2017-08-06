@@ -1,0 +1,130 @@
+---
+title: "RSSっぽいものを自作してIFTTTに通知を飛ばす"
+author: "Shinya Uryu"
+date: "2015年9月20日"
+output: 
+  md_document:
+    variant: markdown_github
+---
+
+日々のあれこれを記録しておきたい性分なせいもあって、最近IFTTTを活用しまくっている。基本的には、各種のサービスをIFTTTを経由してEvernoteに記録する、という過程をとっている。twitterの一日のつぶやきとか、YouTubeのお気に入りなんかをEvernoteに記録している。
+
+### 問題と解決策
+
+サービスがIFTTTに対応していたり、必要な情報を含んだRSSがあれば良いのだが、世の中そんなに甘くはない。例えば、StackOverflowでは、ユーザーの活動をRSSとして配信してくれているが、お気に入りに登録した投稿についてのRSSを用意していない。そのため通常の方法（RSS -> IFTTT -> Evernote）は適用できない。普段からEvernoteに頼りきっていることも相まって<span class = "hlt_bf">自分でお気に入り登録したものを忘れてしまう or 検索してしまう案件が多発して困っていた。</span>
+
+タイトルとURL、日付の情報さえあればRSS自作できるよな、と思い、**`{rvest}`**でデータを取得した後に俺々RSSもどきを作ってみた。まずはパッケージの読み込みから。**`{pforeach}`**は@hoxo_mさんによるパッケージだが、CRANには登録されていない。**`{devtools}`**を使ってGitHubから適宜ダウンロードする必要がある。
+
+```{r, eval = TRUE}
+# 他にも使っているけど、とりあえず。
+library(xml2)
+library(rvest)
+library(pforeach)
+```
+
+#### ページ送り上限の確認
+
+http://stackexchange.com/users/favorites/3993359?page=1&sort=added
+
+このページが私のお気に入り登録した投稿をまとめたものである。新たにお気に入りに追加したもの順に並んでいて、１ページにつき30件表示される。`page=1`の部分を変更することでページ送りが可能になるので、`sprintf`を用いて全ページのスクレイピングを行う。
+
+```{r, eval = TRUE}
+"http://stackexchange.com/users/favorites/3993359?page=1&sort=added" %>% 
+  read_html() %>% 
+  html_nodes(xpath = '//*[@id="favorites-pager"]/a/span') %>% 
+  html_text(trim = TRUE) %>% 
+  tidyr::extract_numeric() %>% 
+  max(na.rm = TRUE) -> last.page
+last.page
+```
+
+`r last.page`ページまで読みこめば全ページにアクセスすることができる。
+
+#### タイトル、urlの取得
+
+では、**`{rvest}`**と**`{pforeach}`**でさくっと必要な情報を取ってくる。ここのコードは親分のものを参考にした。`sprintf`がミソ。
+
+ref) [rvest で OAuth 認証してスクレイピング #rstatsj - Qiita](http://qiita.com/hoxo_m/items/ea2db3b32621a6260926)
+
+```{r, eval = TRUE, results = 'hide', message = FALSE}
+npforeach(i = 1:last.page, .c = rbind)({
+  # 空ベクトルを用意しておく
+  titles <- vector()
+  urls <- vector()
+  post.time <- vector()
+  
+  #iterationに1から6を指定し、sprintfを利用してpage=1からpage=6までにアクセスする
+  url <- sprintf("http://stackexchange.com/users/favorites/3993359?page=%d&sort=added", i)
+  message(url)
+
+  # タイトルとURL、投稿日を取得し、データフレームにまとめる
+  read_html(url) %>% 
+    html_nodes(xpath = '//*[@id="favorites-container"]/div/div') %>% {
+      html_nodes(., xpath = 'h2/a') %>% {
+        titles <<- html_text(., trim = TRUE)
+        # trim 引数を指定しないと無駄な部分（改行指定）が含まれる
+        urls   <<- html_attr(., "href")
+      }
+      post.time <<- html_nodes(., xpath = 'div/text()') %>% 
+        html_text(., trim = TRUE) %>% 
+        .[.!=""]
+      # 投稿日の情報。フォーマットが微妙に異なっているので特に必要ではない
+    }
+  dplyr::data_frame(title = titles, link = urls, pubDate = post.time)
+  }) -> res
+```
+
+`tbl_df`オブジェクトのデータフレームとして保存。
+
+こんな感じになっている。pubDate列に統一性がなくて気に入らない。
+
+```{r}
+knitr::kable(head(res))
+```
+
+#### RSSとして機能させる
+
+pubDate列がきちんと日付として機能していればよかったのだけど、工夫しないとRSSとして正常に動作しなそうなので応急処置。大分ダサい。
+
+```{r, eval = FALSE}
+res$pubDate <- date()
+# ダミーの日付を与える。
+kulife::write.xml(res, file = "my_so_fav.xml")
+# xmlファイルとして保存。
+```
+
+```{r, eval = FALSE}
+tmp <- readLines("my_so_fav.xml")
+tmp <- gsub(pattern = "document>", replacement = "channel> ", x = tmp)
+tmp <- gsub(pattern = "row>", replacement = "item> ", x = tmp)
+tmp <- append(x = tmp, 
+              values = '<rss version="2.0" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:atom="http://www.w3.org/2005/Atom">', 
+              after = 1)
+tmp <- append(x = tmp, 
+              values = '<title>My StackOverflow Favorite</title>', 
+              after = 3)
+tmp <- append(x = tmp, 
+              values = '<link>https://github.com/uribo/custom_feed/blob/master/my_so_fav.xml</link>', 
+              after = 4)
+tmp <- append(x = tmp, 
+              values = '<atom:link rel="self" type="application/rss+xml" href="https://raw.githubusercontent.com/uribo/custom_feed/master/my_so_fav.xml"/>', 
+              after = 5)
+tmp[length(tmp) + 1] <- "</rss>"
+writeLines(tmp, "my_so_fav.xml")
+# 再度保存する
+```
+
+できあがったファイルをGitHubのリポジトリに置いておいて、IFTTTでレシピを作って完成。ひとまず思っていたようにEvernoteに記録されたので満足。
+
+日付の部分は上記のコードを実行するたびに変更されるが、新しい投稿が追加されない限りEvernoteには記録されない。この方法を使えばSO以外にも俺々RSSを作ってEvernoteに記録を残せて良い。
+
+### 課題
+
+* 日付をなんとかする
+* **うまくいかないこともある**
+* ルーチンとして自動化できるようにする
+* SO以外にも応用例を考える
+
+改善されたら書く。
+
+Enjoy!

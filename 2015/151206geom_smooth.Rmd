@@ -1,0 +1,158 @@
+---
+title: "{ggplot2} 1.0.1.9003以降のバージョンで回帰線を引く時などに使うgeom_smooth()関数の挙動が変わるカモ"
+author: "Shinya Uryu"
+date: "2015年12月6日"
+output: 
+  md_document:
+    variant: markdown_github
+---
+
+```{r [SETTING], include = FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = FALSE, 
+                      message = FALSE, error = FALSE, warning = FALSE,
+                      fig.align = "center")
+```
+
+```{r, eval = TRUE, include = FALSE}
+library(remoji)
+```
+
+[以前書いた記事](http://uribo.hatenablog.com/entry/2015/12/01/055000)に関して、気になるコメントをもらって、ちょっともやもやしていたので検証してみました。 **`{ggplot2}`**の`geom_smooth()`についての挙動です。
+
+> 最後のグラフで、glmの結果をggplotするときのfamilyの指定の所ですが、自分の環境ではmethod.argではなく geom_smooth(method = "glm", family = "Gamma"(link = "log"), se = FALSE) のように直指定しないとfamilyが有効になりませんでした。
+
+というコメントに対して、**まあバージョンの違いでしょう**、みたいに雑に返答してしまいましたが、具体的にどう変化したのかがきちんと説明できませんでした。のでちょっと正確さに不安がある（し、**`{ggplot2}`**そのものの仕様もまた変わるかもしれない）のですが、メモとして残します。間違いがございましたらご指摘ください。助かります。
+
+結論から言うと、**やはりバージョンの問題っぽい**、です。
+
+問題になっているのは、`geom_smooth()`です。散布図を描いた際の直線回帰や加法モデル、一般化線形モデルなど、いくつかの統計モデリングによる推定値の当てはめに利用できる便利な関数です。
+
+### {ggplot2} 1.0.1でのgeom_smooth()
+
+便宜上、旧geom_smoothと呼びます。
+
+```{r, eval=FALSE}
+# 検証のためにCRANから最新(2015-12-06現在)のバージョンをインストール
+install.packages("ggplot2")
+```
+
+```{r, eval = TRUE}
+packageVersion("ggplot2")
+```
+
+
+1.0.1 です。問題になっている`geom_smooth()`について見てみましょう。
+
+```{r, eval=FALSE}
+geom_smooth %>% str() 
+```
+
+    ## function (mapping = NULL, data = NULL, stat = "smooth", position = "identity", ...)  
+
+1.0.1の`geom_smooth()`では、一般化線形モデルによるフィッティングを行う時には、id:matsuken92 さんがおっしゃるように、
+
+```{r}
+mpg %>% ggplot(aes(displ, hwy)) +
+  geom_point() +
+  geom_smooth(method = "glm", family = "Gamma"(link = "log"), se = FALSE)
+```
+
+とすれば回帰線が引かれます。*method*引数で回帰モデルのタイプを指定し（lmやらglmやら、gamやらloessやら...）、必要であれば（GLMなので必要）*family*引数を指定する、という形になりました。
+
+### {ggplot2} 1.0.1.9003でのgeom_smooth()
+
+上記の記事を書いた自分がインストールしていたのはGitHubのバージョンだったので、以下のような仕様になっていました。
+
+```{r, eval = FALSE, echo = TRUE}
+# GitHubの開発版をインストール（記事を書いた際のバージョン）
+devtools::install_github("hadley/ggplot2")
+packageVersion("ggplot2")
+```
+
+1.0.1.9003... CRANよりも新しい（開発版）です。このバージョンでの`geom_smooth()`は
+
+```{r, eval = TRUE, echo = TRUE}
+geom_smooth %>% str()
+```
+
+のようになっています。いくつか引数が追加されていますね。ここでは件の*method.args*は見られませんが、
+
+```{r, eval = TRUE, echo = TRUE}
+stat_smooth %>% str()
+```
+
+とすると現れます。また、この`geom_smooth()`の違いはヘルプドキュメントのExampleを見ると明らかです。1.0.1.9003以降での`geom_smooth()`では、説明変数に対して平滑化関数などを嚙ますことを許すようですが、<span class="hlt_bf">GLMのように目的変数に対して特定の分布を適用することができない</span>、という挙動が旧geom_smoothとの変化点みたいです（回帰線を引く以外の`geom_smooth()`の挙動に合わせたのかな、と推測）。なので、id:matsuken92 さんが試されたものと自分の書いたコードでの動作が異なる、という話、ではないでしょうか...
+
+```{r, eval=FALSE}
+mpg %>% ggplot(aes(displ, hwy)) +
+  geom_point() +
+  geom_smooth(method = "glm",
+              method.args = list(family = "Gamma"(link = "log")),
+              se = FALSE)
+```
+
+元の記事同様、開発版の**`{ggplot2}`**では、*method.args*でfamilyを指定して、旧geom_smooth()と同じ図を描きます（省略）。
+
+ちなみに、旧`geom_smooth()`のような処理をすると
+
+```{r, eval=FALSE}
+mpg %>% ggplot(aes(displ, hwy)) +
+  geom_point() +
+  geom_smooth(method = "glm", family = "Gamma"(link = "log"), se = FALSE)
+# Error: Unknown parameters: family
+```
+
+となって怒られます。
+
+もう少し詳しく見ていきます。
+
+```{r, eval=FALSE}
+mpg %>% ggplot(aes(displ, hwy)) +
+  geom_point() +
+  geom_smooth(method = "lm")
+```
+
+`geom_smooth()`の何の引数も与えない場合の回帰線は一般化加法モデルの回帰線です（初期値）。これは説明変数に対して平滑化関数`s()`を与えています(formual = y ~ s(x))。これを変更して、*method* = "lm"とすれば直線回帰モデルの回帰線が引かれます(formual = y ~ x)。では、この*method*を"glm"や"gam"にすれば任意の回帰モデルを適用してくれるかというとそうではなくて、モデル式の情報を別途*method.args*で与える必要があります。
+
+### method.argsに与えるパラメータ
+
+*method.args*引数には、リスト形式でモデル式のパラメータを与えます。そのパラメータは、適用したい統計モデルの関数と一致します。一般化線形モデルであれば、`glm()`なので
+
+```{r, eval=TRUE}
+args(glm) %>% as.list() %>% names()
+```
+
+これらと同じパラメータを指定します（使うのは*family*）。Rでの回帰モデルを実行する関数は共通の引数名を持っていることが多いので、こうした統一は良いなと思いました。
+
+### geom_smooth()をラップする
+
+*method.args*に与える値はモデルによりけりなので、ヘルプを見ると、どうも、適用したいモデルごとに`geom_smooth()`をラップした関数を作っておくのが良いようです。例えば、ロジスティック分布に従う一般化線形モデルによる回帰を行う際には
+
+```{r, eval=FALSE}
+# http://www.ats.ucla.edu/stat/r/dae/logit.htm から引用
+mydata <- read.csv("http://www.ats.ucla.edu/stat/data/binary.csv")
+mydata %>% glm(formula = admit ~ gre,
+               family = "binomial", 
+               data = .)
+```
+
+のような引数を与えるので、これをプロットする際には*family*を*method.args*に渡します（formulaはgeom_smooth()内で指定するか、省略）。その際、関数としてラップすることで異なるプロットにも適用できるのでコードを省略することが可能になります。
+
+```{r, eval=FALSE}
+# ロジスティック回帰用のgeom_smooth()ラッパー関数を作っておく
+binomial_smooth <- function(...) {
+  geom_smooth(method = "glm", 
+              method.args = list(family = "binomial"), ...)
+}
+
+# 先ほどのgeom_smooth()ラッパー関数を使用する
+mydata %>% ggplot(aes(gre, admit)) + 
+  geom_point() + 
+  binomial_smooth()
+```
+
+作った`binomial_smooth()`は`geom_smooth()`と同じ引数を持つラッパー関数なので、この中でformulaを指定して説明変数に平滑化などの関数を与えることもできます。
+
+慣れるまでは混乱しそうですが、書いていたらこれでいいかな、という気になってきました。後でGitHubコードへのリンクを貼ります...。
+
+

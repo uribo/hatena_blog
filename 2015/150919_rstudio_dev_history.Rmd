@@ -1,0 +1,56 @@
+---
+title: "RStudio開発の歴史と変遷を辿る"
+author: "Shinya Uryu"
+date: "2015年9月19日"
+output: 
+  md_document:
+    variant: markdown_github
+---
+
+VimeoにRStudio 4年間の開発の履歴を視覚化した動画が投稿されていた。
+
+[4 Years of RStudio Development on Vimeo](https://vimeo.com/139362527)
+
+個々のファイルがどういう機能を持っているのかは何が何だかわからないが、**集中して整備が進む「枝」や人々の移動を見ていると楽しい。**
+
+そういえば以前、R本体について扱ったものもあった。
+
+[Watch 18 years of R development in 15 minutes](http://blog.revolutionanalytics.com/2015/08/watch-18-years-of-r-development-in-15-minutes.html)
+
+動画を見た際になんだか似ているなーと思っていたら、 [gource](https://code.google.com/p/gource/)というツールを使うと同様のものが作れるらしい。
+
+### RStudioの活動を見逃さない
+
+今回の動画もそうだが、RStudioの活動はRStudio本体の開発のみならず、Rの普及やReproducible research、モダンな分析手法の啓蒙のようなものがある。皆さんチェックされているのかもしれないが、ここで整理しておく。
+
+[https://github.com/rstudio/rstudio:embed:cite]
+
+GitHub上にあるRStudioのリポジトリ。日々開発が[進んでいる](https://github.com/rstudio/rstudio/releases)。新機能や将来適用される内容を見逃さないためにはwatchしておくと良い。[NEWS.md](https://github.com/rstudio/rstudio/blob/master/NEWS.md)を眺めるだけでもワクワクする。
+
+
+[https://github.com/rstudio/expert:embed:cite]
+
+O'Reillyにて配信予定の"[Expert Data Wrangling with R](http://shop.oreilly.com/product/0636920035992.do)"の内容をまとめたPDFおよびRコード。データ操作から整形、可視化について扱っている。もとになったのは次のwebinar資料か。
+
+[RStudio - Webinars](https://www.rstudio.com/resources/webinars/)... RStudioメンバーらによるwebinarが定期的に行わている。このページでは、最新のwebinarについての情報が閲覧や登録が行える。また、過去の動画や資料については上記の[vimeoアカウント](https://vimeo.com/rstudioinc/videos)やGitHubのリポジトリに[置かれている](https://github.com/rstudio/webinars)ので、ぜひ見ておきたい。
+
+[RStudio - Cheatsheets](https://www.rstudio.com/resources/cheatsheets/)... 主にRStudioが開発に関わっているパッケージの関数を紹介するためのチートシート。一枚にまとめられているので、大変便利。すべて印刷しておくべし。
+
+[RStudio公式グッズ](https://www.rstudio.com/about/gear/)... Tシャツやらステッカーやら。そういえばHadleyがこんなつぶやきをしていたので、ひょっとかするとアイコンの変更があるのかもしれない（ggplot2はしれっとデザインが変更した）。
+
+
+
+[https://twitter.com/hadleywickham/status/644928189484154880:embed]
+
+
+
+[RStudio (@rstudio) | Twitter](https://twitter.com/rstudio)... RStudioのTwitterアカウント。フォローしている人もすごい人たちなので、その人たちも~~ストーキングの対象にして~~フォローしておくと良い。
+
+[RStudio Blog](http://blog.rstudio.org/)... 公式ブログ。バージョンアップのお知らせやパッケージのリリース情報、便利な使い方を紹介してくれる。
+
+
+[https://twitter.com/u_ribo/status/634353245457018881:embed]
+
+
+
+... RStudioの機能が増えていき、日々GitHubに目を通していると、次第に早くバージョン1.0出せよ、と思う気持ちがなくなってくる。いつまでも0.99.xxxであって欲しいとすら願う。<span class="hlt_bf">RStudioがあるおかげで、毎日の分析作業が楽しく・便利になっていることは間違いない。</span>

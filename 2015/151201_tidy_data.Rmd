@@ -1,0 +1,371 @@
+---
+title: "手を動かしながら学ぶモダンなデータ操作とtidyなデータ（2015年版）"
+author: "Shinya Uryu"
+date: "2015年12月1日"
+output: 
+  md_document:
+    variant: markdown_github
+---
+
+```{r [SETTING], include = FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = FALSE, 
+                      message = FALSE, error = FALSE, warning = FALSE,
+                      fig.align = "center")
+```
+
+```{r, eval = TRUE, include = FALSE}
+library(remoji)
+```
+
+**[R Advent Calendar 2015](http://qiita.com/advent-calendar/2015/r-rstudio)の第一日目です。**
+
+今日はタイトルの通り、**`{dplyr}`**と**`{tidyr}`**パッケージを使ったデータの整形と集計処理について、実際のデータを交えながら紹介したいと思います（タイトルは流行りの本から撮ってきました。オマージュです）。
+
+**`{dplyr}`**と**`{tidyr}`**パッケージ、関数の使い方を紹介した記事はあっても、実際のデータを扱った記事を検索しても、日本語の記事がほとんど見つからなかったので、tidyなデータ形式について普及させるために記事を書こうというところです。
+
+一応、自分が集められたtidyデータについての記事へのリンクを貼っておきます。
+
+* [R dplyr, tidyr でのグルーピング/集約/変換処理まとめ - StatsFragments](http://sinhrks.hatenablog.com/entry/2014/10/13/003717)
+* [メモ：dplyr::mutate()の中でstr_split()したいと思ったとき、使うのはtidyr::separate()だ - Technically, technophobic.](http://notchained.hatenablog.com/entry/2015/06/29/233237)
+
+ちょっと前に海外の方がtidyデータについての記事を書かれていましたので、こちらも参考になります。
+
+* [Cleaning and visualizing genomic data: a case study in tidy analysis – Variance Explained](http://varianceexplained.org/r/tidy-genomics/)
+
+
+<!-- more -->
+
+
+## `r emoji("beginner")` tidyデータとは
+
+Rだけに限った話ではありませんが、データ解析のために用いられる時間の大半は、手持ちのデータを解析処理を行う関数やツールが扱えるようにするためのデータの整形作業です。いわゆる前処理と呼ばれるこの作業は、データ解析の最初の段階としての作業であり、のちの解析にも大きな影響を及ぼす重要な過程と成っています。
+
+R界の「神」こと[Hadley Wickham](https://github.com/hadley)の提唱するtidyデータは**データを規則正しい形に整形することで、データの操作、解析、可視化を柔軟に扱える**ようにすることを目指しています。
+より詳しい内容について知りたい方はHadleyの[論文](http://vita.had.co.nz/papers/tidy-data.html)を読んでください。また、日本語での記事として、市川(2014)の解説がとても参考になります。
+
+tidyデータの要点は次のようになります。
+
+* **一つの変数に対して一つの列が与えられるべし**（同一の変数を複数の列にまたがせない）
+* **それぞれの観測値は一つの行に収めるべし**（同一の個体に対して複数の行を与えない）
+* **観測データの集合は表形式で表現することができる**
+
+<!-- 理解のために図にしてみました。tidyでないデータとtidyデータの例です。 -->
+
+### `r emoji("package")` {tidyr}パッケージ
+
+Hadleyが中心になって開発されるRパッケージの一つに**`{tidyr}`**というものがあります。これはRでのデータ処理に優れた**`{reshape2}`**をベースにしており、かつ上記のtidyデータの概念を反映しており、手持ちのデータをtidy形式に（柔軟な操作ができるように）する関数や、その他、データの処理のための関数を備えています。
+
+主要な関数
+
+* `gather()`: 複数の変数に分かれている共通の変数を１つの変数内の観測値としてまとめます（`spread()`と対応）
+* `spread()`: 項目とその値を元にして、変数を分割します（`gather()`と対応）
+* `separate()`: １つの列を複数列に分割します
+
+補助的な関数
+
+* `extract_numeric()`: 値から数値を取り出す（¥1000や173cm、-2%のような単位を含むデータから数値だけを抽出します）
+* `unite()`: 複数列を１列に結合
+
+これらの関数と、すでにRでのデータ操作に関して確固たる地位をしめているであろう**`{dplyr}`**パッケージを使っていきます。
+
+## `r emoji("microscope")` 扱うデータについて: モニタリングサイト1000
+
+せっかくなので公開されているデータを使用します。
+
+環境省が行っている業務の一つに「[モニタリングサイト1000](http://www.biodic.go.jp/moni1000/moni1000/)（通称: モニセン）」というものがあります。これはさまざまな生態系を対象として日本全国各地にモニタリングサイトを設置し、長期的な観測によりその変化や構造について明らかにしようという壮大なプロジェクトです。みなさんどこかで耳にしたことがあるのではないでしょうか。
+
+このモニセン業務では、収集されたデータを公開しており、利用用途などのアンケートに答えることでそのデータをダウンロードできます。
+
+今回は「モニタリングサイト1000森林・草原調査」で行われている調査の１つのである毎木調査（特定の面積内に生育する樹木を対象としたサイズの調査）から、北海道の「雨竜」プロットのデータを例にしてtidyデータの説明を行いたいと思います。
+
+名前がいいですよね。親しみを感じます。行ってみたいプロットの一つです。
+
+このデータでは、2005年から2012年の８年間分の毎木のデータが収められています。また、幹の状態を記録するためのメモが追加されています。
+
+## `r emoji("floppy_disk")` データの読み込みからtidy形式への変形
+
+今回利用するRパッケージを読み込みます。
+
+```{r, eval = TRUE}
+library(ggplot2)
+library(readxl)
+library(broom)
+library(tidyr)
+library(dplyr)
+quartzFonts(YuGo = quartzFont(rep("YuGo-Medium", 4)))
+theme_set(theme_classic(base_size = 12, base_family = "YuGo"))
+```
+
+```{r, eval = TRUE, echo = FALSE, results = 'hide'}
+df_uryu <- read_excel(path    = "/Users/uri/Dropbox/git/Data-analyses/woody_plants_sprouting_ability_ja/Data/Original/TreeDataPackage1412/TreeDataFull/UR-BC1-TreeGbh-2005-2012-ver1.xls",
+                    sheet     = 1,
+                    skip      = 86,
+                    na        = "na")
+```
+
+```{r, eval = FALSE, echo = TRUE}
+df_uryu <- read_excel(path = "UR-BC1-TreeGbh-2005-2012-ver1.xls",
+                    sheet  = 1,
+                    skip   = 86,
+                    na     = "na")
+```
+
+このデータシートでは、欠損値が「na」という文字列で与えられているため、`read_excel()`の*na*引数に指定しておきます。こうすることでRでも欠損値として扱ってくれるようになります。
+
+```{r, eval = TRUE}
+names(df_uryu)
+```
+
+読み込んだデータの変数名を確認しました。ちょっと多いので、分析に利用しない列をデータから除いてデータをちょっと軽くします。変数の選択には`dplyr::select()`が便利です。正規表現や条件分岐を利用して列の選択ができます。この時に使用できるオプションについては[\@hoxo_m さんの記事](http://qiita.com/hoxo_m/items/f2f1793c6f086d381340)が詳しいので参考にしてください。
+
+
+```{r, eval = TRUE}
+df_uryu %<>% dplyr::select(-ends_with("cord"), -contains("s_date"), 
+                           -starts_with("stem_"), -starts_with("indv_no"), 
+                           -tag_no05, -tag_no09)
+```
+
+変数が多い（`r ncol(df_uryu)`列）ので`glimpse()`を使って横方向にすべての変数のデータのいくつかを表示します。
+
+```{r, eval = TRUE}
+glimpse(df_uryu)
+```
+
+ここで変数について説明します。
+
+* `tag_no`... 調査する幹を識別するためのタグ番号
+* `spc_japan`... 種名（和名）
+* `gbh`で始まる変数... 胸高周囲長。地上からおよそ1.3mの高さで計測される幹の周囲です。森林樹木の調査では樹木のサイズを評価するためにこの指標が標準的に利用されます。末尾の数字は調査した年を示しています。
+* `note`で始まる変数... 幹の状態や調査状況について記録したメモ。これも末尾の数字は調査した年を示しています。
+* `indv_id`... 個体を識別するための番号
+
+*gbh10*、*gbh12*の列が本来は数値であって欲しいのですが、文字となっていますね。これを修正するために次の処理を行います。`dplyr::mutate()`はデータの変数に対して、計算を行ったり、関数による処理を適用する関数で、以下の`dplyr::mutate_each()`は複数の変数に対して同様の処理を施す関数です。次の処理で、*gbh*で始まる変数をすべて変数の値を数値に直します。
+
+```{r, eval = TRUE}
+df_uryu %<>% dplyr::mutate_each(funs(as.numeric), starts_with("gbh"))
+```
+
+ここからデータをtidy形式にしていきます。上述の通り、`gbh_*`, `note_*`はそれぞれ年ごとに記録された値ですので、これはtidyデータの概念から外れています（**一つの変数に対して一つの列が与えられるべし**）。そこで、この年ごとに値の異なる変数を「調査年」と「値」に分けてtidyにしてみましょう。
+
+`gbh_*`, `note_*`を一旦分離して結合することを試みます。
+
+```{r, eval = TRUE}
+df_uryu %>% {
+  tmp_df_gbh <<- dplyr::select(., -contains("note")) %>% 
+    gather(key = year, value = gbh, select = -c(tag_no, spc_japan, indv_id)) %>% 
+  dplyr::mutate(year = extract_numeric(year) + 2000)
+  tmp_df_note <<- dplyr::select(., -contains("gbh")) %>% 
+    gather(key = year, value = note, select = -c(tag_no, spc_japan, indv_id)) %>% 
+  dplyr::mutate(year = extract_numeric(year) + 2000)
+}
+```
+
+今、**tmp_df_gbh**と**tmp_df_note**というデータフレームができました。以下のように年ごとに記録されていた*gbh*の値が１列に収まっており、調査された年についての情報は*year*列にあります。*note*についても同様です。先頭行を確認します。
+
+```{r, eval = TRUE}
+head(tmp_df_gbh)
+```
+
+tidyデータ形式になった**tmp_df_gbh**と**tmp_df_note**を結合して、完全なtidyデータを作りましょう。ここでは`dplyr::inner_join()`を使います。この関数は、２つのデータフレームを比較して、相互に値を補いながら結合してくれます。
+
+```{r, eval = TRUE}
+df_uryu_tidy <- tmp_df_gbh %>% inner_join(tmp_df_note)
+```
+
+```{r, eval=TRUE, results='asis'}
+head(df_uryu_tidy) %>% kable(format = "markdown")
+```
+
+## `r emoji("hammer")` tidyデータを操作する
+
+tidyデータは、データ操作、モデリング、可視化するために利用しやすい形式であると最初に述べましたが、それを確かめるために次にあげるいくつか処理を加えてみましょう。
+
+* データ操作
+    * 列の分割... `tidyr::separate()`
+    * 新たな変数の作成... `dplyr::mutate()`
+    * 条件に応じたデータの抽出... `dplyr::filter()`
+    * グループごとの集計... `dplyr::group_by()`, `dplyr::summarise()x`
+* 可視化
+* モデリング
+
+さて、これまでに使ってない変数として、*indv_id*があります。これは、幹が最初に記録された年と番号からなる変数ですので、２つの変数に分割します。変数の分割には`tidyr::separate()`を利用します。*col*引数に対象とする変数名を、*into*引数に新たに生成する変数名を与えます。*sep*引数に与える値は分割の基準（文字）です。
+
+```{r, eval = TRUE}
+df_uryu_tidy %<>% separate(col    = indv_id, 
+                           into   = c("obs_first", "id"), 
+                           sep    = "_",
+                           remove = TRUE)
+```
+
+```{r, eval = TRUE, echo = FALSE}
+rm(list = grep("^tmp", ls(), value = TRUE))
+```
+
+次は既存の変数を元にして、新たな変数を追加する、ということを実行します。今回のデータでは、GBH（幹の周囲長）が記録されているので、この幹の肥大成長量を計算して新たな変数にしましょう。
+
+生物の成長量を評価する指標として、相対成長速度 Relative growth rate (RGR)というものがあります。これは以下の式で定義されます。
+
+<!-- [tex:{ displaystyle
+RGR = \frac{(\ln(biomass_{t2}) - \ln(biomass_{t1}) )}{t_{2} - t_{1}}
+}] -->
+
+
+biomass<sub>1</sub>, biomass<sub>2</sub>はそれぞれ、ある時間におけるサイズを、t<sub>1</sub>, t<sub>2</sub>は時間を意味します。
+
+これを*tag_no*（幹を識別するタグ番号）ごとに計算します。そのために`dplyr::group_by()`で*tag_no*を指定します。またその前に実行している`arrange()`は、結果の見やすさのための並び替えです。
+
+```{r, eval = TRUE}
+df_uryu_tidy %<>% arrange(tag_no, year) %>% 
+  group_by(tag_no) %>% 
+  mutate(rgr = (log(gbh) - log(gbh[1]) ) / (year - min(year, na.rm = TRUE)) ) %>% 
+  ungroup() %>% 
+  mutate(rgr = gsub("NaN|Inf", NA, rgr)) %>% 
+  mutate(rgr = as.numeric(rgr) %>% round(digits = 4))
+```
+
+```{r, eval = TRUE, fig.width = 6}
+df_uryu_tidy %>% dplyr::select(-note) %>% 
+  dplyr::filter(!is.na(gbh)) %>% 
+  group_by(year) %>% 
+  summarise(stem_num = n()) %>% 
+  ggplot(aes(year, stem_num, fill = factor(year))) + 
+  geom_bar(stat = "identity", alpha = 0.5) +
+  theme(axis.text.x = element_text(angle = 40, hjust = 1)) +
+  guides(fill = FALSE)
+```
+
+今度はデータに基づいた可視化を行います。まず、調査が行われた年・種ごとに何本の記録があるのかを棒グラフで確認します。また、集計した年・種ごとの幹本数を集計した値を元に、本数が50以上ある種をtgt_spというベクトルで保存しておきます（これは後で利用します）。
+
+```{r, eval = TRUE}
+df_uryu_tidy %>% dplyr::filter(!is.na(gbh)) %>% 
+  group_by(year, spc_japan) %>% 
+  summarise(stem_num = n()) %>% {
+    tgt_sp <<- dplyr::filter(., stem_num > 50) %$% spc_japan %>% unique()
+    p <<- ggplot(., aes(year, stem_num, color = spc_japan)) +
+      geom_point(aes(shape = ifelse(stem_num > 50, 16, 21))) +
+      geom_line(aes(linetype = ifelse(stem_num > 50, 1, 3))) +
+      scale_shape_identity() +
+      scale_linetype_identity()
+  }
+```
+
+
+```{r, eval = TRUE}
+p
+```
+
+50本以上の記録がある種は次の５種になりました。この５種について一般化線形モデルによる統計モデリングを実行しましょう。
+
+```{r, eval = TRUE}
+tgt_sp
+```
+
+`dplyr::filter()`によってデータに制限を与えます。先ほど作成したtgt_spに含まれる種のうち、2012年のデータから、rgrが欠損しておらず、０よりも大きいデータについて対象にしています。
+
+相対成長速度は一般に、サイズが大きくなると低下するので、これを一般化線形モデル GLMで確認します。全データをごちゃ混ぜにした状態で実行した結果が以下になります。
+
+```{r, eval = TRUE, results = 'asis'}
+df_uryu_tidy %>% dplyr::filter(spc_japan %in% tgt_sp, 
+                               year == 2012, 
+                               !is.na(rgr), rgr > 0) %>% 
+  glm(formula = rgr ~ gbh, 
+      family = "Gamma"(link = "log"),
+      data = .) %>% 
+  tidy() %>% kable(format = "markdown")
+```
+
+種ごとの傾向を確認したい時には`dplyr::do()`を使うと良いです。`dplyr::do()`については、[過去に書いています](http://qiita.com/uri/items/27f1497778b4385acb25)のでそちらをご参考ください。
+
+```{r, eval = TRUE}
+uryu_glm_broom <- df_uryu_tidy %>% dplyr::filter(spc_japan %in% tgt_sp,
+                                                 year == 2012, 
+                                                 !is.na(rgr), rgr > 0) %>% 
+  group_by(spc_japan) %>% 
+  do(glm(formula = rgr ~ gbh, 
+         family = "Gamma"(link = "log"),
+         data = .) %>% 
+       tidy())
+```
+
+```{r, eval = TRUE, results = 'asis'}
+uryu_glm_broom %>% kable(format = "markdown")
+```
+
+この結果も図示しておきましょう。
+
+```{r, eval = TRUE, fig.width = 8}
+df_uryu_tidy %>% dplyr::filter(spc_japan %in% tgt_sp,
+                               year == 2012, 
+                               !is.na(rgr), rgr > 0, rgr < 0.10) %>% 
+  ggplot(aes(gbh, rgr)) +
+  geom_point(aes(colour = spc_japan), size = 2, shape = 21, stroke = 1) +
+  geom_smooth(method = "glm",
+              method.args = list(family = "Gamma"(link = "log")),
+              se = FALSE) +
+  facet_wrap(~ spc_japan, scales = "free_x", ncol = 5) +
+  guides(colour = FALSE)
+```
+
+さらにこうした種の効果を考慮するモデルとして、一般化線形モデルよりも一般化混合線形モデルが適しています、がここは割愛します。
+
+### `r emoji("recycle")` 元に戻す
+
+tidyデータは便利ですが、入力する際にはやはり横方向に記録する形式が良いかと思います。なので、tidyデータを元の形式に戻すコードを書いておきます。
+
+```{r}
+df_uryu_tidy %>% dplyr::select(-rgr) %>% {
+  tmp_df_gbh <<- dplyr::select(., -note) %>% 
+    unite(col = indv_id, obs_first, id, sep = "_") %>% 
+    spread(key = year, value = gbh) %>% 
+    dplyr::rename(gbh05 = `2005`,
+                  gbh06 = `2006`,
+                  gbh07 = `2007`,
+                  gbh08 = `2008`,
+                  gbh09 = `2009`,
+                  gbh10 = `2010`,
+                  gbh11 = `2011`,
+                  gbh12 = `2012`)
+  tmp_df_note <<- dplyr::select(., -gbh) %>% 
+    unite(col = indv_id, obs_first, id, sep = "_") %>% 
+    spread(key = year, value = note) %>% 
+    dplyr::rename(note05 = `2005`,
+                  note06 = `2006`,
+                  note07 = `2007`,
+                  note08 = `2008`,
+                  note09 = `2009`,
+                  note10 = `2010`,
+                  note11 = `2011`,
+                  note12 = `2012`)
+}
+df_uryu_untidy <- tmp_df_gbh %>% inner_join(tmp_df_note)
+dim(df_uryu_untidy)
+```
+
+**`{dplyr}`**と比べると関数が少ないので覚えやすいと思うので、皆さんもtidyってください。
+
+### `r emoji("computer")` 実行環境
+
+```{r, eval = TRUE}
+devtools::session_info() %>% {
+  print(.$platform)
+  .$packages %>% dplyr::filter(`*` == "*") %>% kable(format = "markdown")
+}
+```
+
+### `r emoji("tea")` おまけ
+
+明日のR Advent Calendar 2015の担当者は\@u_ribo です！！！
+
+（連投になりますが、ご了承ください。３日からは豪華なメンバーによる記事が続きます）。
+
+## `r emoji("bookmark")` 出典
+
+このページで利用したデータは、モニタリングサイト1000森林・草原調査 「毎木調査」（環境省生物多様性センター）を加工したものである。（http://www.biodic.go.jp/moni1000/findings/data/index_file.html）
+
+## `r emoji("books")` 参考
+
+* 市川太祐 (2014). 外部パッケージを用いた集計・整形処理 Rによるモダンな集計処理 『データサイエンティスト養成読本 R活用編』. 技術評論社.
+* Wickham, H., Cook, D., & Hofmann, H. (2015). Visualizing statistical models: Removing the blindfold. *Statistical Analysis and Data Mining: the ASA Data Science Journal*, 8(4), 203–225. http://doi.org/10.1002/sam.11271
+* Wickham, H. (2014). Tidy data. *The Journal of Statistical Software*.
+* Horton, N. J., Baumer, B. S., & Wickham, H. (2015). Taking a Chance in the Classroom: Setting the Stage for Data Science: Integration of Data Management Skills in Introductory and Second Courses in Statistics. *Chance*. http://doi.org/10.1080/09332480.2015.1042739
+* Wickham, H. (2011). The split-apply-combine strategy for data analysis. Journal of Statistical Software.

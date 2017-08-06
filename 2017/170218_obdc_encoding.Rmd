@@ -1,0 +1,61 @@
+---
+title: "ODBCで取得したデータの文字化けを解決する" 
+author: "Shinya Uryu"
+date: "2017年2月18日"
+output: 
+  md_document:
+    variant: markdown_github
+---
+
+```{r [SETTING], include = FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = FALSE, 
+                      message = FALSE, error = FALSE, warning = FALSE,
+                      fig.align = "center",
+                      tidy = TRUE,
+                      tidy.opts = list(blank = FALSE, width.cutoff = 40))
+```
+
+```{r, eval = TRUE, include = FALSE}
+library(magrittr)
+library(remoji)
+library(pumpkin.seeds)
+```
+
+ODBCは良い。古事記には書かれていないかもしれないが、ホクソエムがそう言っている（意訳）。
+
+http://qiita.com/hoxo_m/items/5464c5fae8d0407c4bac
+
+https://twitter.com/hoxo_m/status/828640245704822785
+
+最近になってR用のODBIインターフェイスである**`{odbc}`**パッケージがCRANに登録されたので、Rからも心置き無く使うことができるし、
+今後ますます人気なると思う。ただ、実際に使ってみるとnon-ASCII文字列では文字化けを起こす状態で残念な感じなのだけど、下記の方法でなんとかなった。
+
+```{r, eval = FALSE, echo = TRUE}
+# ユーザ名やパスワードはダミー
+library(DBI)
+
+# .connection_stringの内容を.odbc.iniに適宜書き込んでおくと省略できる
+con <- dbConnect(odbc::odbc(),
+  .connection_string = "Driver={MySQL ODBC 5.3 ANSI Driver};Uid=<ユーザ名>;Pwd=<パスワード>;Server=localhost;Port=3306;Database=<データベース>;CharSet=sjis;")
+
+# この状態ではマルチバイト文字が文字化けしている
+d <- con %>% dbReadTable("<テーブル>")
+#   name     type
+# 1  ?????????          place
+# 2       ???? transportation
+# 3        ???          place
+# 4     ??????          place
+
+d %<>% 
+  dplyr::mutate_if(is.character, stringi::stri_conv, from = "sjis", to = "UTF-8")
+
+#           place_name     place
+# 1 東京ディズニーシー          place
+# 2           新横浜駅 transportation
+# 3             兼六園          place
+# 4       東京ソラマチ          place
+```
+
+`CharSet`の値に*sjis*を指定し、R側の文字コード変換関数で*UTF8*にするという方法。**`{odbc}`**側で文字コード問題を解決してくれることを願うが、これで少なくとも日本語については文字化けに対処できる。
+
+Enjoy!

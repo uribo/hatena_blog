@@ -1,0 +1,175 @@
+---
+title: "統計的問題を回避するためのデータ解析のプロトコル (Zuur et al. 2010): 8 説明したい変数は独立と言えるのか？" 
+author: "Shinya Uryu"
+date: "2016年2月2日"
+output: 
+  md_document:
+    variant: markdown_github
+---
+
+```{r [SETTING], include = FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = TRUE, 
+                      message = FALSE, error = FALSE, warning = FALSE,
+                      fig.align = "center",
+                      tidy = TRUE,
+                      tidy.opts = list(blank = FALSE, width.cutoff = 40))
+```
+
+```{r, eval = TRUE, include = FALSE}
+library(magrittr)
+library(ggplot2)
+theme_set(SUmisc:::theme_Publication())
+```
+
+この記事では[統計的問題を回避するためのデータ解析のプロトコル (Zuur et al. 2010)で扱われている](http://uribo.hatenablog.com/entry/zuur_et_al_2010_index)目的変数の独立性について議論する。
+
+http://uribo.hatenablog.com/entry/zuur_et_al_2010_index
+
+データ解析時における統計的手法の多くは、**観測されたデータが他と独立であることを仮定**している。あるデータをとる時、そのデータは以前に観測されたデータとは無関係に集められる必要がある。また新たに得られたデータが今後得られるデータに対して影響を及ぼすような何らかの情報を含んでいてはいけないというようなものである。といってもあくまでもこれらは**仮定**なので、現実にはこれらが完全に独立でないことを考慮することの方が大事になってくる。
+
+一方で明らかにデータどうしが独立でないものもある。例えば地域を代表する植生を調べた時、調査した地点が互いに近いと同じようなデータが得られてしまい、十分に調査地の距離を離して得たデータと比較した場合には、地域の植生を表現するには不十分だろう。これは**調査した地点の距離が近いことによる自己相関**である。近い場所では同じような植生があるだろうし、遠くへ行けば異なる景観となるだろう（あるいはその逆）というのは直感的に予測できるものである。このようにデータの性質によって自己相関を生じやすいデータがある。特に**空間や時間は自己相関を示す**典型的なデータである。
+
+次にあげるいくつかの項目について比較した場合、前者と後者、どちらの方が似た結果を得るだろうか。またデータの結果が異なってくるのはどちらであろうか。
+
+* 一週間毎日、定期的に記録した日平均気温(a)と、過去30年間の年平均気温(b)
+* 駅の周辺にいる人を対象にしたアンケート(a)と世界各地の駅周辺で集めたアンケート(b)
+* 特定の分類群を対象にした生物の調査(a)とさまざまな分類群が含まれたデータ(b)
+
+こうしたデータは互いに他のデータに影響を及ぼす代表的なものである。もしこのような性質をもつデータを通常のデータと同様の統計解析を行った場合、特に自己相関をもつ変数の予測を行うようなモデリングや２変数の単回帰を行った時には意図しない結果や問題を生じることがある。とりわけ統計モデリングにおける第１種の過誤を犯す確率が高くなることが指摘されることが多い (Legendre and Desdevises 2009; Baayen *et al.* 2016)。
+
+例えば昨年に出たR本「新米探偵、データ分析に挑む（石田 2015）」でも時系列のデータが扱われており、ちょっとした議論があった。
+
+http://blog.goo.ne.jp/r-de-r/e/6cfa762b0b8ffe0eb5f0c10f35763424
+
+http://d.hatena.ne.jp/teramonagi/20151102/1446472985
+
+このような時間によって変化するある変数について統計モデリングを行う際の問題については北海道大学の久保さんの[資料にもある (PDF)](http://hosho.ees.hokudai.ac.jp/~kubo/ce/2015/kubo2015ESJ.pdf)が、Rに備わっているデータを使って考えてみたい。
+
+ちょっとした模擬データを作る。Rでは標準のデータセットとして時系列データが豊富に備わっており、`treering`というデータを使ってみる。このデータセットはDonald A. Graybillによって1980年に調べられたカリフォルニア州のマツ科樹木の年輪幅（樹木の成長指標となる）のデータである。推定された年輪幅についてB.C.6000年からA.D.1979年までの値がある。
+
+```{r}
+data("treering")
+str(treering)
+```
+
+この年輪データについて、統計モデリングをするために樹木の成長に影響を及ぼすであろう要因として、年の変数に加えて「年平均気温」を与えてみたい。**`{rWBclimate}`**パッケージを使えば、簡単に世界の気候データが利用できるのでそれを用いる（The Climate Data API http://data.worldbank.org/developers/climate-data-api を利用している）。なお、取得できる気温の値が1901年からのものなので、以降は年輪データも1901年からのものを対象にする。
+
+```{r}
+# 年輪データのデータフレームを作成する
+df_treering <- treering %>% unclass() %>% 
+  dplyr::data_frame(width = .,
+                    year     = time(.)) %>% 
+  dplyr::filter(year >= 1901 & year < 1979)
+
+# 気候データの取得
+library(rWBclimate)
+df_grob_temp <- get_historical_temp(locator = "USA", 
+                                                time_scale = "year") %>% 
+  dplyr::select(-locator) %>% 
+  dplyr::rename(temp = data)
+
+# 二つのデータフレームを結合する
+df_treering %<>% dplyr::inner_join(., df_grob_temp)
+
+# データフレームの中身を確認
+dplyr::glimpse(df_treering)
+```
+
+年輪幅の変化を推定するための一般化線形モデル（`年輪幅 width ~ 年 year + 年平均気温 temp`）を適用してみる。
+
+```{r, results = 'asis'}
+df_treering %>% 
+  glm(width ~ year + temp, 
+      data = ., 
+      family = "Gamma"(link = "log")) %>% 
+  broom::tidy() %>% 
+  knitr::kable(format = "markdown")
+```
+
+というように、年輪幅に影響する変数として年が気温よりも有意に効いている（*P* < 0.05）のような結果が得られた。実際に両者の値をプロットしてみると、あたかも関係がありそうな感じもある。
+
+```{r}
+df_treering %>% ggplot(aes(year, width)) + 
+  geom_point() +
+  geom_line(alpha = 0.4) +
+  stat_smooth(method = "lm", se = FALSE, colour = "tomato")
+```
+
+しかし、このような時系列データでこのような統計モデリングを行うのは間違いである。年ごとに変化する年輪幅のようなデータでは、ある年の値は前年の値に影響を受けているし、また同様にある年の値は次の年の値に直接影響する。
+
+考えてみればこれらは当然のように思えるかもしれないが、ではデータがどれだけ他と離れていれば独立であると言えるのだろう。独立性を確かめる方法は必ずしも簡単というわけではない。
+
+
+#### 自己相関を検出するための第一歩
+
+それではこのような自己相関をもたらす変数を扱う場合にはどのように対処すれば良いかというとそれはデータの種類に応じてさまざま...ということになるが、まずは**データが自己相関しているのかを確かめる**ことから始めてみたい。変数の自己相関を確認するための手法として、Rではコレログラムと呼ばれる横軸に時間のラグ（時間_{t + lag}）、縦軸に自己相関係数をプロットした図を描画する関数が用意されている。
+
+時系列データの可視化には、標準の`plot()`関数でも良いが、**`{ggplot2}`**をインポートしている **`{ggfortify}`**パッケージの利用するのが良い（好みの問題）。
+
+```{r}
+library(ggplot2)
+library(ggfortify)
+```
+
+```{r, eval = TRUE}
+# 改めてプロット
+df_treering %$% ts(width, start = min(year), end = max(year), frequency = 1) %>% autoplot(ts.colour = "darkgreen")
+```
+
+`acf()`関数は自己相関と自己共分散の視覚化のために利用できる。青い破線は自己相関係数が０であることを帰無仮説とした場合の95%信頼区間である。
+
+```{r}
+# この場合の1ラグは1年間
+acf(AirPassengers, type = "correlation", plot = FALSE, lag.max = 50) %>% autoplot(colour = "tomato")
+```
+
+この図ではラグ3.5まで有意な自己相関を検出している。またラグ１の状態では自己相関係数0.760と強い正の相関を示していることがわかる。
+
+
+### 自己相関を解決するために
+
+自己相関が生じる要因によって用いるべき分析手法が異なる。自分の知っている範囲でこれらの手法を扱っている以下の書籍・文献が参考になると思われるのであげておく。
+
+**空間的自己相関**... Moran's I, Non-metric multidimensional scalingなど
+
+* 空間統計学
+* 地理空間データ分析
+* 植物群集の構造と多様性の解析
+* Numerical Ecology
+
+**時間的自己相関**... 自己回帰モデル、一般化加法混合モデルなど
+
+* Baayen, R. H., van Rij, J., de Cat, C., & Wood, S. N. (2016, January 8). Autocorrelated errors in experimental data in the language sciences: Some solutions offered by Generalized Additive Mixed Models... 先月出N. S. Woodらの文献。実例を交えて彼らの開発している**`{mgcv}`**パッケージを使った時系列データ分析の注意点について触れている。
+* Analysing Ecological Data
+
+**系統的自己相関**... 系統的独立対比、Phylogenetic generalized least squares linear regressionなど
+
+* Ackerly, D. D. (2009). Phylogenetic Methods in Ecology. Chichester, UK: John Wiley & Sons, Ltd. doi:10.1002/9780470015902.a0021223
+* The Comparative Method in Evolutionary Biology
+* Modern Phylogenetic Comparative Methods and Their Application in Evolutionary Biology: Concepts and Practice
+
+### まとめ
+
+* 独立性を仮定している
+* 空間構造や時系列、系統的な制約、階層性のあるデータを扱う際はこれらの自己相関について考慮する必要があり、適切な処理を実施する必要がある
+
+### 参考
+
+* 石田基広 (2015). 新米探偵、データ分析に挑む. ソフトバンククリエイティブ
+* Baayen *et al.* 2016
+* Ostrom 1990
+* Legendre and Desdevises 2009
+
+
+（系統的に近縁な生物は類似の性質をもつ。祖先からの形質）
+（距離を離して無作為に集めた場合）
+系統的独立...
+
+### 実行環境
+
+```{r, eval = TRUE}
+devtools::session_info() %>% {
+  print(.$platform)
+  .$packages %>% dplyr::filter(`*` == "*") %>% knitr::kable(format = "markdown")
+}
+```

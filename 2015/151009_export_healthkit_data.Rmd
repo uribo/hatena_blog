@@ -1,0 +1,62 @@
+---
+title: "「ヘルスケア」からデータをとってきてRで自己健康診断する"
+author: "Shinya Uryu"
+date: "2015年10月9日"
+output: 
+  md_document:
+    variant: markdown_github
+---
+
+「ヘルシープログラマ」を読んだせいか、年のせいか、健康に気を遣うか、という気持ちになってきた。たとえ生活リズムがボロクソになっていても、気持ちだけは健康に気を遣いっていたい。
+
+先日、長らく使っていたiPhone 4Sを機種変更してiPhone 6Sにした。そのため、[ヘルスケア](http://www.apple.com/jp/ios/health/)アプリの歩数計の機能が使えるようになった。これが結構楽しくて毎日確認している。**確認していると、当然のごとくRで解析したくなってくる。**こうした気持ちは全人類共通のものであるにもかかわらず、データをダウンロードしたり、転送したりという昨日はない。Shucks!
+
+というわけでヘルスケアのデータをダウンロードしてくれるアプリを探したらすぐに見つかった。
+
+[QS Access on the App Store](https://itunes.apple.com/us/app/qs-access/id920297614?mt=8)
+
+http://www.fat32.io/blog/2015/1/21/exporting-data-out-of-healthkit
+
+時間か日ごとかの集計を選び、必要な項目を選択すると、テーブルを作成してくれるので、Macに転送するなりする。あとは煮るなり焼くなり。
+
+せっかくなので試しに歩数のデータを表示してみた。描画にはユタニキこと、@yutannihilation さん作成の**`{chartist}`**を使わせていただいた。super coolだろ？（本当はアニメーションで表示されている）
+
+https://github.com/yutannihilation/chartist
+
+http://notchained.hatenablog.com/entry/2015/02/23/004656
+
+```{r, warning=FALSE, message=FALSE}
+library(readr)
+library(dplyr)
+library(chartist)
+
+read_delim(file      = "/Users/uri/Downloads/Health Data.csv",
+           delim     = ",",
+           col_types = cols(
+             Start  = col_datetime(format = "%d-%b-%Y %H:%M"),
+             Finish = col_datetime(format = "%d-%b-%Y %H:%M")
+           )) -> df_health
+
+df_health %<>% 
+  dplyr::filter(Start > "2015-09-25") %>% 
+  dplyr::mutate(day = paste0("day", row_number())) %>% 
+  dplyr::mutate(Steps = as.numeric(`Steps (count)`)) %>% 
+  droplevels()
+```
+
+```{r, eval=FALSE}
+chartist(df_health, day, Steps) + 
+  SVG_animate(target = "line", 
+              style = "opacity", 
+              offset = 0, 
+              delay = 200, 
+              dur = 4000)
+```
+
+こういう記事を書くきっかけを与えてくれた @dichika さんに感謝。@dichika さんのブログには、以下のものを始め、楽しい記事や参考になる記事がたくさんある。
+
+http://d.hatena.ne.jp/dichika/20150208/p1
+
+http://d.hatena.ne.jp/dichika/20150401/p1
+
+Enjoy!

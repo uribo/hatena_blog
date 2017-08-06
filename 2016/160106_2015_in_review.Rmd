@@ -1,0 +1,373 @@
+---
+title: "2015年の思い出" 
+author: "Shinya Uryu"
+date: "2016年1月6日"
+output: 
+  md_document:
+    variant: markdown_github
+---
+
+```{r [SETTING], include = FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = FALSE, 
+                      message = FALSE, error = FALSE, warning = FALSE,
+                      fig.align = "center")
+```
+
+```{r, eval = FALSE, include = FALSE}
+library(remoji)
+```
+
+**三が日を過ぎて仕事始まりを迎えてからの投稿というところに私という人間の姿が現れているような...そんな気がするポエットです。**
+
+いくつかの項目に分けて考えてみました。
+
+### 生活
+
+* 夜型だったり朝型だったり、不定期でした。相変わらず研究室暮らしでした。
+    * そんなせいか、土日に寝溜めしてしまうことがしばしばありました。ヨクナサソウ...。
+* **二回目の小笠原**。前回は冬だったので今回は夏でした。とはいえ最初の印象が強すぎて今回はあまり印象に残っていません。宴会ばっかりで遊んでいたせいかな
+* 大学院時代の友人たちと尾瀬へ旅行してきました。いい思い出です。
+* **映画三昧**。子供の頃に見た「ミュータントタートルズ」に始まり、「スターウォーズ」で締める、良い年でした。
+* **寿司と焼肉とケーキが食べたい**。何ヶ月も前からお願いしていますが叶っていません。
+* 一身上の都合により一時坊主になりました。気に入っているので短髪は継続しています。
+* 北陸旅行。こっそり行きました。新幹線の中では原稿がどんどん書けることに気がつけてよかったです
+* iPhone 6SとApple Watchを購入してAppleにお布施しました。Apple Musicも契約しているので信者の務めは果たせている気がいます。
+* **全体的にQOLが高かった気がします**。
+
+### 健康
+
+* 忘れ物をしやすくなった（年のせいっぽい）
+* 注意力・集中力の低下（年のせいっぽい）
+* 筋トレ... 時々しています。調査地の中では筋トレが捗ります。一人の時にこっそりやっていました。
+* 軽鬱。受け入れることで少し楽になった気がします
+
+### 研究
+
+* D論
+    * モチベーションの低下
+    * ボスの一言グサリ（言い訳）
+* **2015年も論文が出せなかった**。ただただそれだけです。
+* 今年も八甲田の調査に参加させてもらいました
+* 日光でスウェーデンの学生たちと共同の調査に混ぜてもらいました
+* モニ1000の調査をやりました
+* 大学院おやすみ
+    * 授業料、奨学金、意欲、現在の成果、将来性あれこれを考えての結果です。復帰は未定です
+    * **就職活動、本気出す**
+    * 世話になった、面倒をかけた人たちへ挨拶...という仕事が残っている...
+* 後輩指導できず... 自身がしっかりしていないせいでしょうが、頼られる人間になりたいものです。
+
+### 仕事・活動
+
+* ６月頃からあるプロジェクトに混ぜてもらっています。進捗、あまりよくないのですが、頑張っています
+    * どこへ向かっているのか...人生に迷走している感があります
+    * でも楽しい・勉強になる
+* 研究室でうまくいかないので、R記事やブログを書く機会が増えました。これもヨクナサソウ。
+* よくわかりませんが（自己申請で）ホクソエムの一員になりました。ホクソエムらしい活動をするようになりました。
+* Japan.Rの運営を手伝いました。日本のRコミュニティに少し貢献できたのでよしとします。
+* 勢力的なストーキング活動
+* 健康おじさん、ログおじさん
+
+## Twitterのつぶやきから振り返る2015年
+
+さて、昨年末に[面白い記事](http://qiita.com/uchim/items/db20d662d762efbfa9e5)をみました。興味をもったので調べてみると、もっとも前にTokyo.Rで[発表されている方](http://slideshare.net/abicky/rtwitter)がいたり、この辺の分野ではポピュラーな分析手法であることがわかりました。**こちらがこの記事の本題ですです。**
+
+表題の通り、昨年のTwitter上でのつぶやきから去年を振り返るとともに感情分析 Sentiment Analysis などをしてみたいと思います。N番煎じですが、あくまでも自分の振り返りなので...。コードは最後にまとめます。
+
+### つぶやき数
+
+月、曜日、時間ごとに。
+
+夏から秋にかけては調査が増えるのでつぶやきもやりますね。月平均で去年は70、最大の月は91（６月）でした。
+
+日曜日は~~リア充を装ってつぶやかない~~多分他の曜日よりも寝ている時間が多いので減っています。忙しいはずの火曜日が多くなっているのが意外でした。
+
+
+タイムラインにRユーザーが多いとどこからともなく現れます。帰宅する時間帯（24 ~ 26時）は少ないです。というか帰宅してからは基本的にTwitter見ないです。
+
+
+### 感度分析
+
+各月のつぶやきから求めた感情極性実数値の平均値は次のようになりました。基本的に後ろ向きなのですが、その中でも浮き沈みがあるっぽいですね。
+
+
+### ワードクラウド
+
+感情極性実数値に基づく前向き、後ろ向き、それぞれの形態素でワードクラウドを作成しました。暖色が前向き、寒色系が後ろ向きな言葉です。
+
+
+また上位
+
+**「進捗」「ない」**... 納得のいく結果ですね！落ちがつきました。お後がよろしいようで。
+
+Enjoy!
+
+### 参考
+
+* 石田 基広 (2008). [asin:4627848412:title]. 森北出版.
+* 高村 大也ほか (2006). スピンモデルによる単語の感情極性抽出. 情報処理学会論文誌 47(2), 627-637. http://ci.nii.ac.jp/naid/110004081271
+* [Force.com と R 言語でビッグデータ統計分析 – Salesforce.com のお客様の声をデータマイニング - - Data science & Software development](http://hiratake55.hatenablog.com/entry/2013/12/21/205638)
+* [sentiment - Mining Twitter with R](https://sites.google.com/site/miningtwitter/questions/sentiment/sentiment)
+* [Twitter Analysis in R](http://rstudio-pubs-static.s3.amazonaws.com/1211_0417278bb8174e26bd0dcd396d639b3b.html)
+
+-----
+
+### Rコード
+
+使用したパッケージ。
+
+```{r, eval = FALSE}
+library(pforeach)
+library(readr)
+library(RMeCab)
+library(wordcloud)
+library(lubridate)
+library(purrr)
+library(dplyr)
+```
+
+作図パッケージである**`{ggplot2}`**用の設定です。日本語のフォントを指定しておきます。
+
+```{r eval = FALSE}
+theme_set(theme_classic(base_family = "YuGo"))
+quartzFonts(YuGo = quartzFont(rep("YuGo-Medium", 4)))
+```
+
+#### 前処理
+
+データの取得から、分析に利用可能な形にするまでの処理。
+
+https://twitter.com/settings/account からアカウントのつぶやきデータの取得を申請します。用意ができたらメールでその旨とダウンロード先が知らされます。自分の場合は５分ほどでした。
+
+```{r, eval = c(-3), warning = FALSE, results = 'hide'}
+# パスを指定して圧縮ファイルを解答
+path <- "~/Documents/twitter_activity/"
+unzip(zipfile = paste0(path, "23845411_587d8827eced95d3f6eb2f047585f6067f5ef54e.zip"),
+      exdir   = path)
+(tmp_path <- tempdir())
+
+# 昨年のつぶやきデータ (jsファイル)のファイル名を取得
+log_js <- list.files(paste0(path, "data/js/tweets/")) %>% 
+  grep("^2015", ., value = TRUE) %>% 
+  gsub(".js$", "", .)
+
+# 一時フォルダに月ごとのつぶやきデータファイルを保存
+#   不要な先頭行を削除
+#   対象外にするつぶやきを取り除く（純粋に自分のつぶやきにするため）
+#     1. 誰かへのリプライ
+#     2. URLを含むもの
+pforeach::npforeach(i = 1:length(log_js))({
+  readLines(con = paste0(path, "data/js/tweets/", log_js[i], ".js")) %>% 
+    .[2:length(.)] %>% 
+    jsonlite::fromJSON(txt = ., flatten = TRUE) %$%
+    text %>%
+    grep("@[[:alnum:]]+", ., value = TRUE, invert = TRUE) %>%
+    grep("[http:|https:]+", ., value = TRUE, invert = TRUE) %>%
+    write(file = paste0(tmp_path, "/", log_js[i], ".txt"))
+})
+
+# つぶやきと時間のdata.frame
+#   抽出条件は先と同じ
+#   タイムゾーンが異なっているので修正
+#   月、曜日、時間ごとのつぶやき数を算出するために{lubridate}を利用
+df_tw_tl <- pforeach::npforeach(i = 1:length(log_js), .c = rbind)({
+  readLines(con = paste0(path, "data/js/tweets/", log_js[i], ".js")) %>% 
+    .[2:length(.)] %>% 
+    jsonlite::fromJSON(txt = ., flatten = TRUE) %>%
+    .[, c("text", "created_at")] %>% 
+    dplyr::filter(!grepl("@[[:alnum:]]+", text)) %>% 
+    dplyr::filter(!grepl("[http:|https:]+", text)) %>% 
+    dplyr::mutate(created_at = lubridate::ymd_hms(created_at, tz = "Asia/Tokyo"),
+                  month = lubridate::month(created_at, label = TRUE, abbr = TRUE),
+                  wday  = lubridate::wday(created_at, label = TRUE, abbr = TRUE),
+                  hour  = lubridate::hour(created_at))
+})
+```
+
+#### 感度分析
+
+このへんの処理はSlideShareのQiitaのものと同じです。
+
+MeCabのR用インターフェース**`{RMeCab}`**で形態素解析を行い、東京工業大学の[高村さんが公開されてる単語感情極性対応表](http://www.lr.pi.titech.ac.jp/~takamura/pndic_ja.html)を利用させていただき、形態素ごとに感情極性実数値（その語が一般的に良い印象を持つか悪い印象を持つかを表した二値属性を実数値としたもの）を求めます。値は-1に近いほど後ろ向き（negative）、+1に近いほど前向き（positive）と考えられます。
+
+```{r eval = FALSE}
+df_dic <- read_delim("~/Downloads/pn_ja.dic",
+                     delim = ":",
+                     col_names = c("Term", "kana", "Info1", "value"),
+                     col_types = cols(Term  = "c",
+                                      kana  = "c",
+                                      Info1   = "c",
+                                      value = "d"),
+                     locale = locale(encoding = "cp932")) %>% 
+  aggregate(value ~ Term + Info1, ., mean)
+
+# 単語感情極性表の属性を結合したRオブジェクトを生成
+tw_2015 <- pforeach::npforeach(i = 1:length(log_js), .c = list)({
+  RMeCabFreq(filename = paste0(tmp_path, "/", log_js[i], ".txt"),
+             dic      = "/Users/uri/git/clone/mecab-ipadic-neologd/build/mecab-ipadic-2.7.0-20070801-neologd-20160104") %>% 
+    dplyr::inner_join(df_dic)
+})
+# 各月のつぶやきは以下のようなdata.frameクラスオブジェクトとして格納される
+# tw_2015[[1]] %>% head()
+#       Term Info1 Info2 Freq      value
+# 1   かなり  副詞  一般    1 -0.2666110
+# 2     つい  副詞  一般    1 -0.5456660
+# 3 ともかく  副詞  一般    1 -0.6976480
+# 4 にんまり  副詞  一般    1 -0.0413582
+# 5     まあ  副詞  一般    1 -0.4438480
+# 6   もっと  副詞  一般    1 -0.2372620
+```
+
+#### ワードクラウド
+
+```{r, eval = FALSE}
+# 月ごとのつぶやきを結合して、一年間の形態素とする
+df_tw_2015 <- pforeach::npforeach(i = 1:(length(log_js) - 1), .c = rbind)({
+  tw_2015[[i]] %>% dplyr::bind_rows(tw_2015[[i + 1]])
+})
+# 形態素ごとに頻度を求める
+df_tw_2015 %<>% dplyr::inner_join(df_dic) %>% 
+  dplyr::group_by(Term) %>% 
+  dplyr::summarise(Freq  = sum(Freq),
+                   value = mean(value))
+```
+
+#### 可視化
+
+```{r tw_2015_by_month, eval = FALSE}
+df_tw_tl %>% dplyr::group_by(month) %>% 
+  dplyr::summarise(tw = n()) %>% 
+  ggplot(aes(month, tw, group = 1)) +
+  geom_point() +
+  geom_line() + 
+  ggtitle("月ごとのつぶやき数")
+```
+
+```{r tw_2015_by_wday, eval = FALSE}
+df_tw_tl %>% dplyr::group_by(wday) %>% 
+  dplyr::summarise(tw = n()) %>% 
+  ggplot(aes(wday, tw, group = 1)) +
+  geom_point() +
+  geom_line() +
+  ggtitle("曜日ごとのつぶやき数")
+```
+
+```{r tw_2015_by_hour, eval = FALSE}
+df_tw_tl %>% dplyr::group_by(hour) %>% 
+  dplyr::summarise(tw = n()) %>% 
+  ggplot(aes(hour, tw, group = 1)) +
+  geom_point() +
+  geom_line() +
+  ggtitle("時間ごとのつぶやき数")
+```
+
+```{r tw_2015_polarity_score_by_month, eval = FALSE}
+df_pol <- data.frame(month = lubridate::month(1:12, label = TRUE, abbr = TRUE),
+            value = tw_2015 %>% map(~ mean(.$value)) %>% flatten())
+df_pol %>% ggplot(aes(month, value, group = 1)) +
+  geom_point() +
+  geom_line() +
+  ggtitle("各月の平均感情極性実数値")
+```
+
+```{r tw_2015_wordcloud, eval = FALSE}
+par(mfrow = c(1, 2))
+df_tw_2015 %>% dplyr::filter(value > 0) %$% 
+  wordcloud(Term, Freq,
+            max.words    = 100,
+            random.order = FALSE,
+            colors = c("lightsalmon", "darkorange", "tomato"),
+            scale        = c(6, 0.5),
+            rot.per      = 0.5,
+            min.freq     = min(Freq) + 1, 
+            font         = 2)
+df_tw_2015 %>% dplyr::filter(value < 0) %$% 
+  wordcloud(Term, Freq, 
+            max.words    = 100,
+            random.order = FALSE, 
+            colors       = c("skyblue", "darkviolet"), 
+            scale        = c(6, 0.5),
+            rot.per      = 0.5,
+            min.freq     = min(Freq) + 1, 
+            font         = 2)
+```
+
+```{r tw_2015_freq_term, eval = FALSE}
+# 頻度10以上、上位50
+df_tw_2015 %>% dplyr::filter(Freq > 10) %>% 
+  dplyr::arrange(Freq) %>% 
+  head(50) %>% 
+  dplyr::mutate(感情 = ifelse(value > 0, "前向き", "後向き")) %>% 
+  ggplot(aes(x = reorder(Term, Freq), y = Freq, fill = 感情)) + 
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = c("lightpink", "navyblue")) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  xlab("単語") + ylab("頻度") + ggtitle("2015年のつぶやき\n頻出単語上位50")
+```
+
+-----
+
+```{r}
+# 月ごとのつぶやき数と感情の値の関係
+df_pol %>% dplyr::inner_join(df_tw_mo) %>% 
+  ggplot(aes(value, tw)) +
+  geom_point()
+df_pol %>% dplyr::inner_join(df_tw_mo) %$% cor.test(value, tw) %>% broom::tidy()
+# dplyr::filter(Term %in% sowdic2$Term))
+```
+
+```{r}
+# tw_2015_09 %$% table(Info2, Freq)
+# 
+# tw_2015_09 %>% dplyr::filter(Info2 == "非自立") %>% head()
+# # no -> *, サ変接続, 副詞可能, 助詞類接続, 固有名詞, 接尾, 数, 非自立
+# # 一般, 形容動詞語幹, 自立
+# tw_word <- tw_2015_03 %>% dplyr::filter(Info2 %in% c("一般", "形容動詞語幹", "自立"))
+
+quartzFonts(YuGo = quartzFont(rep("YuGo-Medium", 4)))
+theme_set(theme_classic(base_size = 18, base_family = "Helvetica")) # fig2: 18; fig3: 24
+# polarity, score
+
+# library(qdap)
+# with(tw_2015_01, polarity(Term, list(sex, adult)))
+# tw_2015_01 %$% polarity(Term, list(Info1, Info2))
+tw_word <- tw_2015_06 %>% dplyr::bind_rows(tw_2015_09)
+
+tw_2015_01$Term %>% wordcloud()
+tw_word %$% wordcloud(Term, Freq, 
+                         random.order = FALSE,
+                         scale     = c(4,1),
+                         max.words = 100, 
+                         colors   = brewer.pal(8, "Dark2"))
+
+library(tm)
+VectorSource(tw_df$text) %>% Corpus() %>% tm_map(PlainTextDocument) %>% TermDocumentMatrix()
+tw_df$text %>% class()
+
+tw_word %>% dplyr::filter(Freq > 3) %$% table(Freq, Term)
+```
+
+
+
+```{r, warning = FALSE}
+# 
+readLines(con = paste0(path, "data/js/tweets/", log_js[9], ".js")) %>% 
+  .[2:length(.)] %>% 
+  jsonlite::fromJSON(txt = ., flatten = TRUE) %>% {
+    tw_df <<- .
+    names(.)
+  }
+#  [1] "source"                                        "id_str"                                        "text"                               
+#  [4] "id"                                            "created_at"                                    "in_reply_to_status_id_str"          
+#  [7] "in_reply_to_user_id"                           "in_reply_to_status_id"                         "in_reply_to_screen_name"            
+# [10] "in_reply_to_user_id_str"                       "entities.user_mentions"                        "entities.media"                     
+# [13] "entities.hashtags"                             "entities.urls"                                 "user.name"                          
+# [16] "user.screen_name"                              "user.protected"                                "user.id_str"                        
+# [19] "user.profile_image_url_https"                  "user.id"                                       "user.verified"                      
+# [22] "retweeted_status.source"                       "retweeted_status.id_str"                       "retweeted_status.text"              
+# [25] "retweeted_status.id"                           "retweeted_status.created_at"                   "retweeted_status.entities.user_mentions"      
+# [28] "retweeted_status.entities.media"               "retweeted_status.entities.hashtags"            "retweeted_status.entities.urls"     
+# [31] "retweeted_status.user.name"                    "retweeted_status.user.screen_name"             "retweeted_status.user.protected"    
+# [34] "retweeted_status.user.id_str"                  "retweeted_status.user.profile_image_url_https" "retweeted_status.user.id"           
+# [37] "retweeted_status.user.verified"        
+```
+

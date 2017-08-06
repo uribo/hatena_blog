@@ -1,0 +1,167 @@
+---
+title: "{rvest}を使って植物の学名をYListから取得する"
+author: "Shinya Uryu"
+date: "2015年12月4日"
+output: 
+  md_document:
+    variant: markdown_github
+---
+
+```{r [SETTING], include = FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = TRUE, 
+                      message = FALSE, error = FALSE, warning = FALSE,
+                      fig.align = "center")
+```
+
+```{r, eval = TRUE, include = FALSE}
+library(remoji)
+```
+
+一人Rアドベントカレンダーの３日目。何日まで続くかわからないが、@dichika さんを見習って続ける。
+
+**今日は仕事の話だ**。植物生態学、特に群集データを扱う時のtipsについて書いてみたい。
+
+群集を対象にした調査を行った場合、１種だけが出現した、ということは稀であり、群集内に生育するさまざまな種をデータとして扱う必要がある。その際、**種名データは和名で記載されているものを学名にして、さらに単純化のために属名と種小名からなる記号として扱うことがしばしばある**。
+
+この時の和名を学名に直す作業を、<span class = "hlt_bf">図鑑を参照しながらちまちまやると時間がかかるし、打ち間違えも発生しやすい（学名は長い）。特に30種とかになると辛い</span>。そのため以前は「BG Plants 和名−学名インデックス（通称YList）」(http://ylist.info) が提供しているcsvファイルから、和名と種名（学名）のマッチングで対応していた。
+
+> 植物和名ー学名インデックス YList」（略称：YList）は、「施設に保存されている研究用植物のデータベース」（BG Plants）で用いられる植物名、特に、日本産植物の和名と学名に関する詳細情報の整備を目的として、2003年に米倉浩司（東北大学）と梶田忠（東京大学〔現・千葉大学〕）を中心に作成されたものです。
+
+しかし2015年７月にサーバー移行をしたためか、現在ではファイルを利用することができなくなっている。
+
+「うーむ困ったナ」ってなったのだけど、そういえば「俺にはRがあるじゃないか！」ということで **`{rvest}`** を使って和名から対応する標準の学名を取得してみたい。そして、得られた学名をのちの解析で扱いやすいようにするための手順を説明する。
+
+### `r emoji("palm_tree")` YListからの学名情報の取得
+
+使用するパッケージを読み込む。 **`{vegan}`** は植物生態学をやっている人には超有名なパッケージだ。他、 **`{flora}`**パッケージは学名の文字列をよしなにするために利用する。
+
+```{r}
+library(rvest)
+library(vegan)
+library(flora)
+library(tidyr)
+library(dplyr)
+```
+
+さて実際にどうするかというと、Ylistの検索機能(http://ylist.info/ylist_simple_search.html)を利用させてもらう。任意の科名、種名、別名、ノートに含まれる検索語を拾ってきてくれるので、ここに自分の扱いたい和名を送れば良い。
+
+まずはYlistへのセッションを確立する。この時の返り値、特にStatusが200になっているので正常にアクセスできていることがわかる。
+
+```{r}
+(session <- html_session("http://ylist.info/ylist_simple_search.html"))
+```
+
+次に検索フォームに送りたい和名の文字列を用意し、表示される検索結果のページから取得したいHTMLの部分をxpathで指定する。次のコードの実行結果を以下に示す（先頭の３つのみ表示）。
+
+```{r}
+# アカガシについての学名を取得する
+form <- html_form(session)[[1]] %>% set_values("any_field" = "アカガシ")
+
+submit_form(session, form) %>% 
+  html_nodes(xpath = "//*[@id='content']/span/span/a") %>% 
+  html_text() %>% {
+    df_res <<- .
+    head(., 3)
+  }
+```
+
+きちんと取得できている。しかしこのままでは利用しにくいので、取得した結果に処理を加えて次のようにする。
+
+```{r}
+df_res %<>% data_frame(Species = .) %>% 
+  dplyr::filter(grepl("標準", Species)) %>% 
+  dplyr::mutate(Species = gsub("[[:space:]]標準", "", Species)) %>% 
+  tidyr::extract(col = Species, into = c("Species", "Jp.Species"),
+                regex = "([[:print:]]+)[[:space:]]([[:print:]]+)")
+
+df_res %>% kable(formar = "markdown")
+```
+
+順を追って説明すると、まず先ほどの結果をデータフレームとして格納し、そこからsynonimではない、「標準」学名の学名を抽出し、学名と和名の列に分離させた。というものである。
+
+ただこれだと、「アカガシ」とつく他の種も該当してしまったり、「ブナ」の場合にはブナ科の種が含まれてしまうので次のようにする。
+
+```{r}
+df_res %>% dplyr::filter(Jp.Species == "アカガシ")
+```
+
+これを関数化して使いやすくする。*query*引数を持つ`ylist_names()`という関数を書いてみた。
+
+```{r, echo=FALSE}
+ylist_names <- function(query = NULL){
+  session <- html_session("http://ylist.info/ylist_simple_search.html")
+  form <- html_form(session)[[1]] %>% set_values("any_field" = query)
+  submit_form(session, form) %>% 
+    html_nodes(xpath = "//*[@id='content']/span/span/a") %>% 
+    html_text() %>% 
+    data_frame(Species = .) %>% 
+    dplyr::filter(grepl("標準", Species)) %>% 
+    dplyr::mutate(Species = gsub("[[:space:]]標準", "", Species)) %>% 
+    tidyr::extract(col = Species, 
+                   into = c("Species", "Jp.Species"),
+                   regex = "([[:print:]]+)[[:space:]]([[:print:]]+)") -> res
+    if (query %in% res$Jp.Species) {
+      res %>% dplyr::filter(Jp.Species == query) %>% 
+        return(.)
+    } else {
+      return(res)
+    }
+}
+```
+
+```{r}
+ylist_names(query = "ブナ")
+```
+
+Ylistの良いところの一つは、和名の別名、いわゆる標準和名でない和名を入れても標準和名に対応させた結果を返してくれるところだ。なので、標準和名ではないムシカリ（オオカメノキの別名）を入れてもオオカメノキ（レンプクソウ科）が返ってくる仕様にした。また`lapply()`と組み合わせることで複数の種をベクトル形式で与えて一気に検索できる。
+
+```{r}
+species <- c("アカガシ", "ブナ", "イヌガシ", "ムシカリ")
+
+lapply(species, ylist_names) %>% 
+  bind_rows() %>% {
+    df_res <<- .
+    kable(., format = "markdown")
+  }
+```
+
+`lapply()`の関数の使い方に関しては、Hadleyの「Advanced R」で詳しい説明があるっぽい。翻訳も出るらしいので気になる方は一読することをお勧めする。
+
+### `r emoji("bamboo")` 学名データを扱いやすくする
+
+先のままだと、学名に命名者などの情報が含まれていて、無駄といえば無駄である。というわけで、ここで **`{flora}`**の関数を利用する。**`{flora}`**には学名から命名者の情報を削除する`remove.authors()`という便利な関数がある。次のように使う。
+
+```{r}
+df_res %<>% rowwise() %>% 
+    dplyr::mutate(Species = gsub("[[:space:]]$", "", Species)) %>% 
+    dplyr::mutate(Species = flora::remove.authors(Species)) %>% 
+    ungroup()
+df_res$Species
+```
+
+さて次は、この４種について略称を与えてみよう。多種データを扱う場合、学名を利用すると長いので、属名のみにしたり、属名と種小名の頭文字をとってくる、というようなことが行われる。これも手動でやると間違いがあったり、種が追加されると重複してしまう可能性があるので、Rに任せてしまう。ここでは **`{vegan}`**の`make.cepnames()`を用いて種名の略称を生成する。また標準関数の`abbreviate()`を利用しても良い。
+
+```{r}
+df_res %$% make.cepnames(Species)
+df_res %$% abbreviate(Species, 2, strict = TRUE)
+```
+
+もうちょっと改良するべきところはあるだろうが、とりあえずこれで多種データを扱う際には機会があった時に捗る。
+
+### `r emoji("computer")` 実行環境
+
+```{r, eval = TRUE}
+devtools::session_info() %>% {
+  print(.$platform)
+  .$packages %>% dplyr::filter(`*` == "*") %>% kable(format = "markdown")
+}
+```
+
+### `r emoji("bookmark")` 出典
+
+このページの学名データは「BG Plants 和名−学名インデックス」から得た。
+
+米倉浩司・梶田忠 (2003-)　「BG Plants 和名−学名インデックス」（YList），http://ylist.info（ 2015年12月3日）.
+
+上述したコードの利用に関しては、アクセス過多などのYListへ迷惑のかからない範囲内での利用に制限してほしい。
+

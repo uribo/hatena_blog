@@ -1,0 +1,251 @@
+---
+title: "統計的問題を回避するためのデータ解析のプロトコル (Zuur et al. 2010): 4 データの中にゼロがたくさんあるか？"
+author: "Shinya Uryu"
+date: "2015年11月25日"
+output: 
+  md_document:
+    variant: markdown_github
+---
+
+```{r [SETTING], include = FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = FALSE, 
+                      message = FALSE, error = FALSE, warning = FALSE,
+                      fig.align = "center")
+library(remoji)
+```
+
+この記事では[統計的問題を回避するためのデータ解析のプロトコル (Zuur et al. 2010)で扱われているゼロ過剰問題]()を取り扱っている。
+
+離散値の整数かならるカウントデータの多くはポアソン分布に従うことが一般的である。しかし、ある生息地における生物の観察数やスポーツにおける試合の得点など、０を多く含むデータが存在する。
+
+そうしたデータについて統計モデルを適用する場合、ポアソン分布や負の二項分布を仮定した一般化線形モデル GLMなどを行うと、ポアソン分布で期待されるよりも過剰（あるいは過少）にデータが観測されることがあり推定がうまくいかないことがある。
+
+### `r emoji("chart_with_downwards_trend")` カウントデータにポアソン分布を用いる
+
+"Analysis of Categorical Data with R (Christopher R. Bilder and Thomas M. Loughin 2014)"から例題として出されているデータセット(Tauber *et al.* 1996)を利用させてもらう。このデータセットは*Galerucella nymphaeae*という甲虫のオスとメスのペアを異なる温度条件で飼育し、産卵数を観察したものである。
+
+このデータから温度に対する産卵数の効果を検討してみたい。
+
+```{r, eval=TRUE}
+library(data.table)
+library(dplyr)
+```
+
+```{r, eval=TRUE, echo=FALSE}
+beetle_egg <- fread(input = "~/Dropbox/Documents/Books/Analysis of Categorical Data with R/inst/BeetleEggCrowding.txt",
+                        data.table = FALSE) %>% 
+  dplyr::filter(TRT == "I")
+```
+
+```{r, eval=FALSE}
+beetle_egg <- fread(input = "BeetleEggCrowding.txt",
+                        data.table = FALSE) %>% 
+  dplyr::filter(TRT == "I")
+```
+
+```{r, eval=TRUE}
+beetle_egg$NumEggs %>% {
+  print(class(.))
+  print(head(.))
+}
+```
+
+```{r, eval=TRUE, echo=FALSE}
+beetle_egg %>% ggplot(aes(NumEggs)) + 
+  geom_histogram(binwidth = 1, fill = "gold", alpha = 0.6)
+```
+
+まずはGLMでポアソン分布を当てはめてみる
+
+```{r, eval=TRUE}
+poi_mod <- beetle_egg %>% glm(NumEggs ~ Temp, 
+                              family = poisson(),
+                              data   = .)
+summary(poi_mod)
+
+mu_poi <- poi_mod %>% predict() %>% exp() 
+zero_poi <- -mu_poi %>% exp() %>% sum()
+round(zero_poi, digits = 2)
+```
+
+実際の０の観察値（`r sum(beetle_egg$NumEggs == 0)`）に対し、０の期待値が過少に評価されてしまった。
+
+###  `r emoji("chart_with_upwards_trend")` ゼロ過剰なポアソン分布
+
+このデータのように０の割合が多いデータに対して有効なモデルがゼロ過剰なポアソン分布モデル Zero-inflated Poisson Distribution: ZIPモデルである。
+
+Rのパッケージでは
+
+[Which is the best R package for zero-Inflated count data? - ResearchGate](http://www.researchgate.net/post/Which_is_the_best_R_package_for_zero-Inflated_count_data)
+
+という話題がでるほどたくさんあるのだが、ここでは最尤推定法を利用する**`{pscl}`**とMCMCサンプリングによるベイズ推定を行う**`{rstan}`** とそのラッパーパッケージ**`{brms}`**と**`{glmmstan}`**の４つのパッケージを試してみる。
+
+```{r, eval=TRUE}
+library(pscl)
+library(rstan)
+library(brms)
+library(glmmstan)
+options(mc.cores = parallel::detectCores())
+```
+
+#### `r emoji("package")` {pscl}
+
+```{r, eval=TRUE}
+zip_mod <- beetle_egg %>% zeroinfl(NumEggs ~ Temp | 1, dist = "poisson", data = .)
+  # distを明示しない場合と一緒
+zip_mod %>% {
+  print(summary(.))
+  zero_zip <<- sum(predict(object = ., type = "prob")[,1]) %>% round(digits = 2)
+    # type... prob, count, zero
+}
+zero_zip
+```
+
+**`{pscl}`**の`zeroinfl()`で真の０の度数に近い値が得られた。
+
+先ほどのポアソン分布を当てはめたモデルと比べてみても
+
+```{r, eval=TRUE}
+vuong(zip_mod, poi_mod)
+```
+
+ZIPモデルのほうが妥当であるという結果が得られた。
+
+#### `r emoji("package")` {rstan}
+
+Korner-Nievergeltらの本（"Bayesian Data Analysis in Ecology Using Linear Models with R (2015)"）にZIPモデルの内容が書かれていたので、それを参考に書いたStanコードとその実行結果をしれっと追記しておく（2015-11-26）
+
+```{r, eval = FALSE}
+stan_code <- '
+data {
+  int<lower=0> N;
+  int<lower=0> NumEggs[N];
+  vector[N] Temp;
+}
+parameters {
+  vector[2] a;
+  vector[2] b;
+}
+model {
+  // transformed parameters
+  vector[N] theta;
+  vector[N] lambda;
+
+  for(i in 1:N){
+    theta[i] <- inv_logit(a[1] + a[2] * Temp[i]);
+    lambda[i] <- exp(b[1] + b[2] * Temp[i]); 
+  }
+
+  // priors
+  a[1] ~ normal(0,5);
+  a[2] ~ normal(0,5);
+  b[1] ~ normal(0,5);
+  b[2] ~ normal(0,5);
+
+  // likelihood
+  for (i in 1:N) {
+    if(NumEggs[i] == 0) {
+      increment_log_prob(log_sum_exp(bernoulli_log(1, theta[i]), bernoulli_log(0, theta[i]) + poisson_log(NumEggs[i], lambda[i])));
+    } else {
+      increment_log_prob(bernoulli_log(0, theta[i]) + poisson_log(NumEggs[i], lambda[i]));
+    }
+  }
+}
+'
+
+list_beetle_egg <- list(N       = nrow(beetle_egg),
+                        NumEggs = beetle_egg$NumEggs,
+                        Temp    = beetle_egg$Temp)
+
+stan_code_c <- stan_model(model_code = stan_code)
+stan_mod <- sampling(object = stan_code_c,
+                data = list_beetle_egg,
+                seed = 71,
+                chains = 3,
+                iter   = 10000,
+                warmup = 8000)
+stan_mod
+```
+
+
+#### `r emoji("package")` {brms}
+
+続いて**`{brms}`**でZIPモデルを適用する。
+
+```{r, eval = FALSE}
+zip_mod_brms <- beetle_egg %>% 
+  brm(NumEggs ~ Temp, 
+      data     = ., 
+      seed     = 71,
+      n.chains = 3,
+      n.iter   = 10000,
+      n.warmup = 8000,
+      family   = "zero_inflated_poisson")
+summary(zip_mod_brms)
+```
+
+#### `r emoji("package")` {glmmstan}
+
+最後に**`{glmmstan}`**でZIPモデルを適用する。**`{glmmstan}`**は最近のバージョンでZIPモデルを始め、より多くの分布に対応したとのこと。
+
+```{r, eval = TRUE}
+zip_mod_glmmstan <- beetle_egg %>% 
+  glmmstan(NumEggs ~ Temp, 
+           data   = ., 
+           family = "zipoisson",
+           chains = 3,
+           iter   = 10000,
+           warmup = 8000)
+
+output_result(zip_mod_glmmstan) %>% {
+  .$beta %>% data.frame() %>% kable(format = "markdown", digit = 3) %>% print()
+  .$beta_zero %>% data.frame() %>% kable(format = "markdown", digit = 3)
+}
+# print(zip_mod_glmmstan, digits = 2, pars = "beta")
+```
+
+**`{glmmstan}`**では、`output_result()`を使って回帰モデルの係数を取得できる、というのを開発者の\@simizu706 さんに[教えてもらった](https://twitter.com/simizu706/status/669645409841582080)ので追記（**2015-11-26**）
+
+```{r, eval=FALSE, echo=FALSE}
+traceplot(zip_mod_glmmstan, pars = "beta")
+```
+
+Stanのモデルコードについてはもう少し検討する必要があるみたいだが、これらのパッケージを利用してゼロが過剰なポアソン分布のデータに対応することができた。
+
+
+### `r emoji("coffee")` 雑
+
+RでZIPモデルを行うパッケージ。怪しいものもある。上のものから気に入っている。下の３つは検証していない。
+
+6. **`{pscl}`**... 良い。
+7. **`{glmmstan}`**... 良い。**`{rstan}`**のラッパー
+3. **`{brms}`**... Stanを利用した線形モデル
+4. **`{blme}`**... **`{lme4}`**のベイズ拡張。ランダム効果を取り組んだモデルに使える
+1. **`{glmmADMB}`** CRANにもGitHubにもないどこか怪しいパッケージ
+2. **`{COZIGAM}`**  アーカイブされている
+5. **`{gamlss.dist}`**... 使えなさそう
+
+おまけ。
+
+```{r, eval=TRUE}
+## 負の二項分布
+negbim_mod <- beetle_egg %>% glm.nb(NumEggs ~ Temp, 
+                      data = ., 
+                      init.theta = 0.61, 
+                      link = log)
+summary(negbim_mod)
+```
+
+### `r emoji("books")` 参考
+
+* Zuur *et al.* (2010). A protocol for data exploration to avoid common statistical problems. Methods in Ecology and Evolution 1: 3--14.
+* 岩崎 学. (2010). カウントデータの統計学. 朝倉書店.
+* Christopher R. Bilder and Thomas M. Loughin. (2014). Analysis of Categorical Data with R. CRC Press.
+* Zuur *et al.* (2009). Mixed Effects Models and Extensions in Ecology with R. Springer.
+* Martin *et al.* (2005). Zero tolerance ecology: improving ecological inference by modelling the source of zero observations. Ecology Letters 8:1235--1246.
+* Fränzi Korner-Nievergelt *et al.* (2015). Bayesian Data Analysis in Ecology Using Linear Models with R, BUGS, and Stan. Elsevier
+* [R Data Analysis Examples: Zero-Inflated Poisson Regression](http://www.ats.ucla.edu/stat/r/dae/zipoisson.htm)
+* [StanでZero-inflated Poissonモデル：Taglibro de H：So-netブログ](http://ito-hi.blog.so-net.ne.jp/2013-12-26)
+* [Count data and GLMs: choosing among Poisson, negative binomial, and zero-inflated models | Datavore Consulting](http://datavoreconsulting.com/programming-tips/count-data-glms-choosing-poisson-negative-binomial-zero-inflated-poisson/)
+
+

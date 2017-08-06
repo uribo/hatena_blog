@@ -1,0 +1,207 @@
+---
+title: "Moves + Rで行う自分ストーキング" 
+author: "Shinya Uryu"
+date: "2016年2月16日"
+output: 
+  md_document:
+    variant: markdown_github
+---
+
+```{r [SETTING], include = FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = FALSE, 
+                      message = FALSE, error = FALSE, warning = FALSE,
+                      fig.align = "center",
+                      tidy = TRUE,
+                      tidy.opts = list(blank = FALSE, width.cutoff = 40))
+```
+
+```{r, eval = TRUE, include = FALSE}
+library(magrittr)
+library(remoji)
+```
+
+~~私の趣味の一つにお気に入りユーザーのネットストーキングがあります。~~ネットストーキングをしている、というのを公言するとウケが良くないことは経験上明らかなので、*ひとまず*自分をストーキングしてみたい（というのを今年の目標の一つにしています）。今回は、Movesというスマートフォン向けの行動記録アプリケーションのウェブAPIを利用した自分ストーキングをRを使ってやってみたいと思います。
+
+### `r emoji("question")` Movesとは
+
+http://moves-app.com
+
+> Activity Diary of Your Life
+
+をキャッチコピーとしていているように、一度ユーザー登録、ログの開始をしておくと**自動的に自分の行動を記録してくれる**アプリケーションでAndroidおよびiPhoneで利用可能となっています。
+
+http://love-guava.com/android-moves/
+
+MovesではウェブAPIが提供されていて、第三者が開発したアプリも充実しているのですが、R用のパッケージが見つかりません（Pythonはあるのに...）。<span class = "hlt_bf">APIさえ利用できるなら、Rでもあれこれできるはずだ、といういつもの気持ちでやってみましょう</span>。また、APIを使わずとも自分のデータは取得できるのでそちらも使ってみたいと思います。
+
+-----
+
+### `r emoji("walking")` Moves APIを利用する
+
+#### 準備
+
+いくつかの作業が必要です。流れとしては
+
+1. Movesで[新しいアプリケーションを作成](https://dev.moves-app.com/apps/new)し、**Client ID**と**Client secret**を取得
+2. ブラウザで "https://api.moves-app.com/oauth/v1/authorize?response_type=code&client_id=<Client ID>&scope=location%20activity" にアクセス
+    * 表示されるPINコードをスマートフォンで入力、データの利用を許可
+    * リダイレクト先のURL"<redirect_uri>?code=<authorizationcode>"から"<authorizationcode>"の部分をコピー
+3. `httr::POST()`でアクセストークンを取得
+
+という感じになります。これらは一度実行しておけば、アクセストークンの有効期間が過ぎるまではやる必要がなくなります。リフレッシュトークンも取得できるのでそれをメモしておいて、期限が近づいてきたら再度アクセストークンを有効にするのが良いのではないでしょうか。
+
+まずはAPIを叩くために**`{httr}`**パッケージを読み込みます。
+
+```{r, eval=TRUE}
+library(httr)
+```
+
+作成したアプリケーション固有のClient IDとClient secretを用意しておきましょう。
+
+```{r, eval = FALSE, echo = TRUE}
+ci <- "<Client ID>"
+cs <- "<Client secret>"
+```
+
+ブラウザで "https://api.moves-app.com/oauth/v1/authorize?response_type=code&client_id=g2XylBJ2IHmkN64cfCvyGt5oCgy8p6Qb&scope=location%20activity" にアクセスします。
+
+```{r, eval=FALSE, echo=TRUE}
+BROWSE(paste0("https://api.moves-app.com/oauth/v1/authorize?response_type=code&client_id=", ci, "&scope=location%20activity"))
+```
+
+```{r, eval=FALSE, echo=TRUE}
+ac <- "<authorizationcode>"
+
+get.token <- POST("https://api.moves-app.com/oauth/v1/access_token?",
+                  body = list(grant_type    = "authorization_code",
+                              code          = ac,
+                              client_id     = ci,
+                              client_secret = cs),
+                  encode = "form") %>% content()
+
+access.token <- get.token$access_token
+```
+
+Moves APIの利用には、リクエストヘッダーかリクエストURLにアクセストークンを含める必要があるので、ヘッダーにアクセストークンの値を渡しておく。
+
+```{r, eval=TRUE, echo=FALSE}
+access.token <- "UfawCqVtitzIyS47F9z9Rm9Rx37FyvnwwbB2wrfpF98nCbPOyX92x_bsIA27A81z"
+```
+
+
+```{r, eval=TRUE}
+http.header <- add_headers(`Authorization` = paste("Bearer", access.token))
+```
+
+#### APIの操作
+
+再度必要なパッケージを読み込んでおく。
+
+```{r, eval=TRUE}
+library(purrr)
+library(ggplot2)
+library(formattable)
+```
+
+Moves APIでは取得対象のデータに対してエンドポイントが与えられているので、いくつかのエンドポイントを叩いてみます。まずはユーザー情報から。
+
+```{r, eval=TRUE}
+# Profile
+#   ユーザーを特定できそうな一部の結果を改変している
+GET("https://api.moves-app.com/api/1.1/user/profile", 
+    config = http.header) %>% 
+  content()
+```
+
+ある特定の日の記録を取得して、Movesが定める運動（移動手段を含める）の種類に応じた時間を図にしてみます。こういうこと簡単にできるのはRの強みではないでしょうか。
+
+```{r, eval=TRUE, echo=FALSE}
+summary.sigle.date <- GET("https://api.moves-app.com/api/1.1/user/summary/daily/20160212",
+    config = http.header) %>% 
+  content()
+```
+
+```{r, eval=FALSE, echo=TRUE}
+# Summaries
+summary.sigle.date <- GET("https://api.moves-app.com/api/1.1/user/summary/daily/yyyyMMdd",
+    config = http.header) %>% 
+  content()
+```
+
+```{r, eval=TRUE}
+summary.sigle.date[[1]]$summary %>% map_df(~ .[c("group", "duration")]) %>% 
+  ggplot(., aes(group, duration, fill = group)) + 
+  geom_bar(stat = "identity")
+```
+
+```{r, eval=TRUE}
+# Summaries その２
+#   pastDaysパラメータの指定により31日前まで遡れるが、記録が少ないので７日間にする
+summary.past.date <- GET("https://api.moves-app.com/api/1.1/user/summary/daily?pastDays=7", 
+    config = http.header) %>% 
+  content()
+
+df.group.summary <- summary.past.date %>% 
+  at_depth(1, map_if, is_list, map_df, ~.[c("group", "duration", "distance")]) %>% 
+  map(c("summary")) %>% 
+  dplyr::bind_rows()
+
+df.group.summary %>% dplyr::filter(group == "walking") %>% 
+  dplyr::add_rownames(var = "Day") %>% 
+  dplyr::select(-group) %>% 
+  dplyr::rename("duration (sec.)" = duration, "distance (m)" = distance) %>% 
+  formattable(list(`duration (sec.)` = color_bar("tomato"), 
+                   `distance (m)`    = color_tile("white", "olivedrab")))
+```
+
+**うわっ...私の運動量、少なすぎ...？**
+
+### `r emoji("earth_asia")` Leaflet上へのマッピング
+
+**`{leaflet}`**パッケージを使えば、地図上へのマッピングも簡単です。APIデータの加工が結構面倒だったので、ここはダウンロードしてきたデータを使うことにしました（今後の課題）。
+
+```{r}
+library(leaflet)
+```
+
+```{r, eval=FALSE}
+geojson <- readLines("160216_moves_apiRmd_files/storyline_20160212_custom.geojson", warn = FALSE) %>%
+  paste(collapse = "\n")
+```
+
+```{r, eval=FALSE, echo=TRUE}
+geojson <- readLines("~/Downloads/moves_export/geojson/daily/storyline/storyline_yyyyyMMdd.geojson", warn = FALSE) %>%
+  paste(collapse = "\n")
+
+leaflet() %>% addTiles() %>% setView(lng = 139.53, lat = 35.600, zoom = 10) %>% 
+  addGeoJSON(geojson, fill = FALSE)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+### `r emoji("books")` 参考
+
+* https://syncer.jp/moves-api-matome
+* https://rstudio.github.io/leaflet/
+* http://rpubs.com/kazutan/leaflet_slide
+
+### `r emoji("computer")` 実行環境
+
+```{r}
+devtools::session_info() %$% packages %>% 
+  dplyr::filter(`*`  == "*") %>% 
+  dplyr::select(package, version, source) %>% 
+  knitr::kable(format = "markdown")
+```
+

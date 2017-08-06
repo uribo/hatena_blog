@@ -1,0 +1,102 @@
+---
+title: "【小ネタ】すっからかん(欠損値しかない)の列を削除して完全データにしたい" 
+author: "Shinya Uryu"
+date: "2017年5月18日"
+output: 
+  md_document:
+    variant: markdown_github
+---
+
+```{r [SETTING], include = FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = TRUE, 
+                      message = FALSE, error = FALSE, warning = FALSE,
+                      fig.align = "center",
+                      tidy = TRUE,
+                      tidy.opts = list(blank = FALSE, width.cutoff = 40))
+```
+
+```{r, eval = TRUE, include = FALSE}
+library(magrittr)
+library(remoji)
+```
+
+```{r, include = FALSE}
+df.list <- estatapi::estat_getDataCatalog(appId = Sys.getenv("ESTAT_TOKEN"), searchWord = "自然公園") %>% 
+    dplyr::mutate_all(dplyr::na_if, y = "") %>% 
+    dplyr::filter(NAME == "5_国立公園の利用者数(公園、都道府県別)", FORMAT == "XLS")
+```
+
+時として、データの特定の列が全て欠損している、ということがある。分析を進めて行く上でこのような列は不要となるため、列選択によって除外するという方法をよくとる。
+
+それを行うためにはまず、**各列の欠損値を数えて、完全データとなっている列だけを選択**する必要がある。それをRでやる。パイプ処理と合わせて効率的にやる。そんな方法。
+
+次のデータを例にする。すべてを出力しないが、変数が多く、*TABLE_CATEGORY*や*TABLE_SUB_CATEGORY1*のように欠損値しかもたない列があるというのが特徴となっている。
+
+```{r}
+df.list %>% ncol()
+df.list[, 1:5] %>% head()
+```
+
+`VIM::aggr()`でのデータの可視化確認。左側の棒グラフで縦軸が1.0に達しているように、特定の列は欠損値しかもたない。
+
+```{r vim_aggr_missing}
+df.list %>% 
+  VIM::aggr(plot = TRUE,
+     prop = TRUE,
+     col =  "purple",
+     cex.lab = 0.7,
+     number = TRUE)
+```
+
+最初に各列の欠損値をカウントする。これには**VIM**パッケージ(欠損データの可視化や補完を行う)の`countNA`関数を使うか、欠損値の判定を行う関数`is.na()`の返り値(欠損であれば1となる)を合計する処理(`sum(is.na(x))`)を適用すれば良い。
+
+```{r}
+df.list$TABLE_CATEGORY %>% VIM::countNA()
+df.list$TABLE_CATEGORY %>% is.na() %>% sum()
+```
+
+これをデータフレームの各列に適用させる。`apply()`を用いても良いが、後の処理を考えて**purrr**を使う。**purrr**の`map()`関数は返り値がリストであるが、`map_*()`を使うことで返り値をベクトルにし、データ型についても指定したできるようになる。今回は欠損値の合計を実数として取得するので`map_int()`を使う。
+
+```{r, eval = FALSE}
+df.list %>% apply(2, VIM::countNA)
+```
+
+```{r}
+library(dplyr)
+library(purrr)
+```
+
+```{r}
+df.list %>% map_int(VIM::countNA)
+```
+
+次に、ここから欠損を含む列と欠損していない列を区別する。これには`purrr::keep`, `purrr::discard`による要素の取捨選択を適用させることで実行する。条件式として、対象(今回はデータフレームの各列の欠損値合計)が0となる要素を選択するようにする。
+
+```{r}
+df.list %>% map_int(VIM::countNA) %>% 
+    keep(~ .x == 0)
+```
+
+これらの情報を用いて、列選択を行う。`dplyr::one_of()`は文字列ベクトルで与えた変数を選択する`select_helters`関数群の一種である。
+
+```{r}
+df.list.mod <- df.list %>% 
+  select(
+    one_of(
+      df.list %>% map_int(VIM::countNA) %>% 
+    keep(~ .x == 0) %>% names()
+    ))
+```
+
+改めて欠損数を確認しておこう。
+
+```{r}
+df.list.mod %>% map_int(VIM::countNA)
+```
+
+このような処理で完全データを得ることができる。
+
+`keep()`と`one_of()`の組み合わせは色々な条件に応用できそうだ。
+
+Enjoy!
+

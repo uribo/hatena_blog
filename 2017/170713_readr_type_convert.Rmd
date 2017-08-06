@@ -1,0 +1,75 @@
+---
+title: "データフレームの変数を正しく扱うためにreadr::type_convert関数やreadr::parse関数群を使う" 
+author: "Shinya Uryu"
+date: "2017年7月13日"
+output: 
+  md_document:
+    variant: markdown_github
+---
+
+```{r [SETTING], include = FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = TRUE, 
+                      message = FALSE, error = FALSE, warning = FALSE,
+                      fig.align = "center",
+                      tidy = TRUE,
+                      tidy.opts = list(blank = FALSE, width.cutoff = 40))
+```
+
+```{r, eval = TRUE, include = FALSE}
+library(magrittr)
+library(remoji)
+```
+
+Rをやっていると時々、データ型の違いによる関数実行の失敗や不正確な結果の出力が起こる。errorで処理が停止したりwarningで間違っていることがわかると良いのだけど、間違ったデータ型で処理が通ってしまって、結果を見て「あれへんだな」ということがあると良くない。
+
+（自分の中で）ありがちなのが、日付・時間型で扱いたい変数が文字列となっているような、うまくパースできていないという状況。うっかり日付・時間型のデータを入力に用いる関数に投げるとエラーになったりする。
+
+```{r}
+library(tidyverse)
+# 例のために文字列で「日付・時間」のデータを用意
+(d <- data_frame(
+  datetime = c("2017-07-12 08:30:11",
+               "2017-07-12 09:10:36",
+               "2017-07-12 10:43:42")
+))
+
+d$datetime %>% lubridate::as_datetime()
+```
+
+日付・時間型として正しく扱うため、`lubridate::as_datetime()` (baseの関数であれば`as.POSIXct()`か)を使えば良いのだけど、
+
+```{r}
+d %>% mutate(
+  datetime = lubridate::as_datetime(datetime)
+)
+```
+
+と書くのがちょっとだるい。そんな時には表題の**readr**パッケージの関数`type_convert()`を使う。
+
+```{r}
+# readrパッケージはtidyverseに含まれる
+d %>% 
+  type_convert()
+```
+
+楽。
+
+この関数は何をしているかというと、文字列として扱われているデータフレームの変数のデータ型をよしなに変換してくれるというもの(**utils**にある`type.convert()`とは別物。話がそれるがこの関数の変換はあまりよろしくない気がする...)。
+
+今回のように、本来、日付・時間や数値であるはずの変数が文字列になっている場合に使うと良いだろう。
+
+また、**readr**にはベクトルを入力として、データ型をパースし直す`parse_*`関数群が備わっている。これはこれで便利。
+
+```{r}
+d$datetime %>% parse_datetime()
+d$datetime %>% parse_guess()
+
+parse_datetime("2017年7月12日 9時20分", "%Y年%m月%d日 %H時%M分") 
+parse_date("2017-7-12", "%Y-%m-%d")
+```
+
+**readr**パッケージに関しては
+
+http://qiita.com/uri/items/9fdc5d831ff69a2d9128
+
+も参考までに。

@@ -1,0 +1,109 @@
+---
+title: "MEEに掲載されたRパッケージのAdevent Calendarは実現可能なのか？"
+author: "Shinya Uryu"
+date: "2015年11月23日"
+output: 
+  md_document:
+    variant: markdown_github
+---
+
+```{r, include = FALSE}
+library(remoji)
+```
+
+
+"[Methods in Ecology and Evolution](http://www.methodsinecologyandevolution.org/view/0/index.html)"（以下MEE）というジャーナルがあります。イギリス生態学会が刊行している生態学及び進化学系の学術誌で、ISIでの2014年の生態学分野におけるインパクトファクターの順位が９位（IF 6.554）であるそうです（すごい）。
+
+この雑誌の中では、時々解析ツールとしてのRパッケージの紹介記事が掲載されます。他にも解析用のRパッケージを掲載する雑誌もありますが、こうしたパッケージを紹介する雑誌としてMEEがもっとも頻度が高い気がします。
+
+12月といえばAdvent Calendarなわけですが、これに便乗して、「MEEで掲載されているRパッケージのまとめ」みたいなことをやったらあれこれ勉強になるような気がしたのですが、完走できるような気がしません。というかそもそも、ネタ的な意味で実現可能なのでしょうか。
+
+というわけで12月に入る前に、MEEに掲載されたRパッケージ文献について調べてみました。
+
+過去に刊行されている号から、**`{rvest}`**を使って判定基準となる論文のタイトルをスクレイピングしてきて、その中から以下の条件に合うものを抽出します（この条件以外にもRパッケージの記事があるかもしれませんが、今回はこういう条件ということで...）
+
+* **"hoge: piyopiyo"** という形式のタイトルであること（多くの記事がRパッケージ名: パッケージの概略、という形式であるため）
+* "R" をタイトルに含んでいること
+
+```{r, message = FALSE}
+# 必要なパッケージの読み込み
+library(rvest)
+library(pforeach)
+```
+
+まずは練習。最新号のタイトルを取得します。
+
+```{r, eval = FALSE}
+scrape <- read_html("http://onlinelibrary.wiley.com/doi/10.1111/mee3.2014.5.issue-11/issuetoc")
+
+titles <- scrape %>% html_nodes(xpath = "///ol/li/div/a") %>% html_text() %>% 
+  grep("[[^*:]]*", ., value = TRUE) %>% 
+  grep("[[:space:]]R[[:space:]]", ., value = TRUE, ignore.case = FALSE) %>% 
+  gsub(" \\(.+?\\)", "", .)
+
+titles
+```
+
+こんな感じで抽出できました。
+
+... というのを2010年の第１巻１号から2015年11月までに出版されている第６巻11号まで繰り返します。中途半端な関数を書いてみました。
+
+```{r, cache = TRUE, results = 'hide', eval = FALSE}
+base.url <- sprintf("http://onlinelibrary.wiley.com/doi/10.1111/mee3.%s.issue", 
+                      paste(seq(2010, 2015), seq(1, 6), sep = "."))
+
+get_title_in_r <- function(year = 1, iter = 2) {
+  npforeach(i = 1:iter)({
+    url <- paste0(base.url[[year]], "-%s", "/issuetoc") %>% sprintf(., i)
+    message(url)
+    read_html(url) %>% 
+      html_nodes(xpath = "///ol/li/div/a") %>% 
+      html_text() %>% 
+      grep(pattern = "[[^*:]]*", x = ., value = TRUE) %>% 
+      grep("[[:space:]]R[[:space:]]", ., value = TRUE, ignore.case = FALSE) %>% 
+      gsub(" \\(.+?\\)", "", .) # 括弧とその中の文字列を削除
+})
+}
+
+res_2010 <- get_title_in_r(year = 1, iter = 4)
+res_2011 <- get_title_in_r(year = 2, iter = 6)
+res_2012 <- get_title_in_r(year = 3, iter = 6)
+res_2013 <- get_title_in_r(year = 4, iter = 12)
+res_2014 <- get_title_in_r(year = 5, iter = 12)
+res_2015 <- get_title_in_r(year = 6, iter = 11)
+
+res <- c(res_2010, res_2011, res_2012, 
+         res_2013, res_2014, res_2015)
+```
+
+```{r, results = 'asis', eval = FALSE}
+data.frame(Title = res) %>% knitr::kable(format = "markdown")
+```
+
+というわけで`r length(res)`件の文献が該当しました。クリスマスまでの25日... 無理ではなさそうですが、ちょっときつそうですね。さてどうしたものか。
+
+ちなみに、一度アクセス制限をくらったっぽいので注意。
+
+**2015-11-27 追記`r emoji("memo")`**
+
+せっかくなのでこれらのパッケージをインストールしておきます。上の表からスクレイピングしてきて、Rパッケージ名だけをベクターにします。
+
+```{r, eval=FALSE}
+library(rvest)
+# パッケージ名の取得
+packages <- read_html("http://uribo.hatenablog.com/entry/2015/11/23/073000") %>% 
+  html_table(fill = TRUE) %>% 
+  data.frame() %>% 
+  dplyr::mutate(Title = gsub(":.+", "", Title)) %$% 
+  Title
+
+# インストール可能なパッケージの一覧から、まだインストールされていないパッケージだけに絞る
+packages %<>% .[!(. %in% installed.packages())]
+
+# パッケージをインストールする
+if (length(packages)) {
+  install.packages(pkgs = packages, dependencies = TRUE)
+}
+
+```
+

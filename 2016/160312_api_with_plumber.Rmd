@@ -1,0 +1,255 @@
+---
+title: "RでREST APIを作る（plumber編）" 
+author: "Shinya Uryu"
+date: "2016年3月12日"
+output: 
+  md_document:
+    variant: markdown_github
+---
+
+```{r [SETTING], include = FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = FALSE, 
+                      message = FALSE, error = FALSE, warning = FALSE,
+                      fig.align = "center",
+                      tidy = TRUE,
+                      tidy.opts = list(blank = FALSE, width.cutoff = 40))
+```
+
+```{r, eval = TRUE, include = FALSE}
+library(magrittr)
+library(remoji)
+```
+
+様々なAPIを利用していると、次第に**自分でもAPIを作りたくなりませんか？** Rの関数を利用してHTTP経由でデータの受け渡しができると嬉しいですよね。加えて、Rの作図機能を使って、APIを叩くだけで作図してくれると超ハッピーですよね。
+
+前置きも何もなく唐突ですが、**[`{plumber}`](https://github.com/trestletech/plumber)パッケージを使ってお手軽にRでAPIサーバーを構築できるヨ**、という話です。**`{plumber}`**はまだCRANに登録されていないので、利用する際にはGitHubから開発版をインストールしてきてくだい。
+
+### RでAPIサーバー?
+
+「RでAPIサーバーを作る」という話自体は昨年末のJapan.Rでゴミ箱さんが話されていたのですが、運営側だったこともあってしっかりと聞けていませんでした（この記事を書こうとして、そういえばゴミ箱さんがRでAPIを作る、みたいな話していたよなというのを思い出した）。ゴミ箱さんの話の中でも**`{plumber}`**について言及しています。
+
+#### 何ができるの？
+
+ざっくりと説明すると<span class = "hlt_bf">Rコードの処理をURL経由で取得・表示することが可能になります</span>。どこかでAPIサーバーとしてRコードを実行しておけば、URLにアクセスするだけで結果を得たりすることができます。
+
+Rの演算能力や統計処理の結果をウェブブラウザでみたり、プロットを表示したりできます。基礎になるのはRのコードなので、パラメータを定義しておくことで利用者の用途に応じた出力が可能になるなんて素敵だと思いませんか。
+
+というわけでやってみましょう。
+
+```{r}
+hw <- function(){
+  return("Hello world!")
+}
+
+hw()
+```
+
+Rでこの関数を実行するとコンソールに'Hello world!'が出力されますね。まずはこの関数をAPI化してみましょう。次のコードを適当な名前で保存しましょう。ここでは`first_api.R`とします。
+
+```{r}
+#* @get /hello
+hw <- function(){
+  return("Hello world!")
+}
+```
+
+
+関数`plumb()`によって、先ほどの`first_api.R`を読み込みます。実行結果は適当な名前のオブジェクトに保存しておきましょう。
+
+```{r}
+# devtools::install_github("trestletech/plumber")
+library(plumber)
+```
+
+```{r, eval = FALSE, echo = FALSE}
+r <- plumb("160312_api_with_plumber/first_api.R")
+```
+
+```{r, eval = FALSE, echo = TRUE}
+r <- plumb("first_api.R")
+```
+
+`plumb()`関数の実行結果はR6クラスメソッドによって実装されたplumberクラスオブジェクトです。いろいろな要素をもっていますが、ひとまず置いておいてAPIを叩きましょう。
+
+```{r}
+r %>% {
+  class(.) %>% print()
+  names(.)
+}
+```
+
+*port*引数でポート番号を指定し実行します。
+
+```{r, eval = FALSE}
+r$run(port = 8000)
+```
+
+この状態でブラウザを起動し、`http://localhost:8000/hello`にアクセスするか`curl 'http://localhost:8000/operation'`を実行しましょう。Rのコンソールで得られたように"Hello world!"が表示されましたか？このAPIでは表示されるメッセージが固定されているので、次の例ではパラメータによって実行結果を変化させてみましょう。
+
+
+実行中の処理を中断し、先ほどの`first_api.R`に次のコードを追加します。
+
+```{r}
+#* @post /operation
+operation <- function(a, b){
+  as.numeric(a) + as.numeric(b)
+}
+```
+
+この関数は*a*と*b*という２つの引数を持つ、ごくごく簡単な関数です。Rで実行すると以下の結果を返します。
+
+```{r}
+operation(a = 1, b = 4)
+
+operation(a = -5, b = 2)
+```
+
+先ほどと同様ローカルホストへアクセスしますが、今度は関数の定義に引数を指定したので、URLにこの引数の値について、パラメータとして指定する必要があります。パラメータはエンドポイントの後に`?`をつけて、`parameter=A`のような形で指定しましょう。パラメータが複数ある場合には`&`を使います。Rで実行した結果と同じ値を得るには`http://localhost:8000/operation?a=1&b=4`となります。せっかくなので今度は結果もRで受け取りましょう。現在実行中のRとは別に新たにRを起動し、次のコードを実行します。
+
+```{r, eval = FALSE}
+plumb("160312_api_with_plumber/first_api.R") %$% run(port = 8000)
+```
+
+```{r, eval = FALSE}
+library(httr)
+
+POST("http://localhost:8000/operation?a=1&b=4") %>% content()
+# [[1]]
+# [1] 5
+```
+
+### **`{plumber}`**の使い方
+
+先の例で見たように**`{plumber}`**ではAPIとして機能させるRファイルと`plumb()`関数の実行により動作します。**`{plumber}`**パッケージを利用する際の大きな利点として、既存のRコードには手をつけずにAPI化できる点があり、`plumb()`を実行するだけでお手軽にAPIサーバーを用意できることになります。
+
+`first_api.R`の中身を改めて見てみましょう。
+
+```{r}
+#* @get /hello
+hw <- function(){
+  return("Hello world!")
+}
+
+#* @post /operation
+operation <- function(a, b){
+  as.numeric(a) + as.numeric(b)
+}
+```
+
+Rコードの前に宣言した`#* @get /hello`の部分が**`{plumber}`**では重要になってきます。`@get`というのは、このAPIがGETメソッドで呼び出されることを指定しており、`/hello`の部分が提供されるAPIの種類を決めるエンドポイントとなります。エンドポイントは`http://localhost:8000/hello`のように与えられます。このエンドポイントの定義は`#'`と`#*`でできますが、`#'`の方はRパッケージ作成の際に利用されるRoxygenのものと混同するので避けたほうが良いです。
+
+もちろん、GET以外のPOSTやPUTといったhttpメソッドが利用できます。
+
+#### 利用例
+
+**`{plumber}`**を使えばRを使って作図したものをURLベースで取得したり、サーバーとして機能させるコンピュータに保存されているファイルの値を読み込むといったことも可能です。
+
+##### ルーティングの指定
+
+パラメータ数を多くしたくない、といった時にはルーティングを設定すると良いでしょう。
+
+```{r}
+#* @get /iris/<sp>/<n:int>
+function(n, sp){
+  iris %>% dplyr::filter(Species == sp) %>% 
+    .[as.integer(n), ]
+}
+```
+
+```{r}
+library(httr)
+
+GET("http://localhost:8000", path = "iris/setosa/3") %>% content()
+# [[1]]
+# [[1]]$Sepal.Length
+# [1] 4.7
+# 
+# [[1]]$Sepal.Width
+# [1] 3.2
+# 
+# [[1]]$Petal.Length
+# [1] 1.3
+# 
+# [[1]]$Petal.Width
+# [1] 0.2
+# 
+# [[1]]$Species
+# [1] "setosa"
+```
+
+##### 画像の描画
+
+プロットの結果をAPIとして昨日冴えるには`@png`という特殊なエンドポイントを指定します。引数を用意しておくと、利用者が任意の値を渡せて実用的ですね。
+
+```{r}
+#* @get /ggp2dens
+#* @png
+ggp2dens <- function(seed = rnorm(1), fill.colour = "tomato", alpha = 1.0){
+  library(ggplot2)
+  set.seed(seed)
+  p <- data.frame(x = rnorm(100)) %>% 
+    ggplot(aes(x)) + geom_density(fill = fill.colour, alpha = alpha)
+  print(p)
+}
+```
+
+```{r}
+# 直接、画像ファイルをダウンロード
+download.file(url = "http://localhost:8000/ggp2dens?seed=71&fill.colour=forestgreen", destfile = "res_plot.png")
+
+# 作図領域にプロット
+plot(0:1, 0:1, type = "n")
+GET("http://localhost:8000/ggp2dens?seed=71&fill.colour=tomato&alpha=0.5") %>% content() %>% 
+  rasterImage(0, 0, 1, 1)
+```
+
+##### HTTPファイルに埋め込む
+
+##### ハマリどころ
+
+関数を作成する時には、いくつか注意が必要です。
+
+1. パラメータは基本的に文字列として扱われるので、数値を渡す際には`as.numeric()`や`as.integer()`の指定をしておく
+2. **`{ggplot2}`**のプロットには`print()`を使わなくてはいけない
+2. 関数内で引数の値を別の関数に引き渡すための*...*引数は利用できない
+
+これらはダメな例です。
+
+```{r}
+#* @post /operation
+operation <- function(a, b){
+  a + b
+}
+
+#* @get /ggp2dens
+#* @png
+ggp2dens <- function(seed = rnorm(1), ...){
+  library(ggplot2)
+  set.seed(seed)
+  ggplot(data.frame(x = rnorm(100)), aes(x)) + geom_density(...)
+}
+```
+
+### 発展的な利用面
+
+今回は**`{plumber}`**の紹介とごくごく簡単な例だけになってしまいましたが、**`{plumber}`**の利用価値はもっと多いはずです。
+
+**`{plumber}`**パッケージの良いところをまとめると
+
+* 既存のRコードを簡単にAPIとして利用できる
+* Rの強力な機能（統計、作図）をAPIとして使用できる。
+* Shinyと組み合わせてウェブアプリが作れそう（LondonRの資料ではShinyを使っている）
+
+という感じでしょうか。
+
+より詳しく学びたい人は１月にLondonRで[発表された資料(zipファイル)](http://www.londonr.org/presentations/2016/01/LondonR_-_APIs_in_R_with_plumber_-_Mark_Sellors_-_20160126.zip)もコード付きが参考になります。
+
+#### 代案として
+
+* https://github.com/Bart6114/jug
+* https://github.com/kos59125/shadowy （ゴミ箱さん作成）
+
+### 参考
+
+* [plumber](http://plumber.trestletech.com/)
+* [plumber - Convert your existing R code to a web API](http://plumber.trestletech.com/components/earl-2015/#/)

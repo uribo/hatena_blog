@@ -1,0 +1,77 @@
+---
+title: "日付から曜日を取得する関数と日本語表記の対応" 
+author: "Shinya Uryu"
+date: "2017年5月2日"
+output: 
+  md_document:
+    variant: markdown_github
+---
+
+```{r [SETTING], include = FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = TRUE, 
+                      message = FALSE, error = FALSE, warning = FALSE,
+                      fig.align = "center",
+                      tidy = TRUE,
+                      tidy.opts = list(blank = FALSE, width.cutoff = 40))
+```
+
+```{r, eval = TRUE, include = FALSE}
+library(magrittr)
+library(remoji)
+library(pumpkin.seeds)
+```
+
+日付から曜日を取得する関数として`lubridate::wday()` (days of the week)をよく使う。この関数は曜日を与えて実行し、デフォルトでは数値化した値(日曜日を起点 1とした1から7までの値)を返すが、*label*引数を有効化することで曜日のラベルが得られる。また省略形と正規の表現が選べる。
+
+データフレームに含まれる日付の列から、曜日を求めて各曜日の集計値を求める、みたいなことをやる時などに便利だ。
+
+```{r}
+library(lubridate)
+today() %>% wday(label = TRUE)
+```
+
+```{r}
+library(dplyr)
+d <- data_frame(
+  date = make_date(2017, 5, 1:31)
+) %>% 
+  mutate(
+    wd = wday(date)
+  )
+```
+
+ただ、時々、数値や英語の曜日ではなく日本語の「火曜日」、「金曜日」といったラベルを使いたい時がある。そういう場合にどうすれば良いかというのが今回の話。
+
+結論から言うと、現在CRANに登録されている**lubridate**パッケージ (1.6.0)はこれに対応していない。しかしGitHubの開発版はこれに対応している (ref) [#401](https://github.com/hadley/lubridate/issues/401), [#508](https://github.com/hadley/lubridate/pull/508)。
+
+こんな感じで日本語の曜日も表示できるようになる。
+
+```{r, eval = FALSE, echo = TRUE}
+d$date %>% wday(label = TRUE, locale = "ja_JP.UTF-8")
+#  [1] 月 火 水 木 金 土 日 月 火 水 木 金 土 日 月 火 水 木 金 土
+# [21] 日 月 火 水 木 金 土 日 月 火 水
+# Levels: 日 < 月 < 火 < 水 < 木 < 金 < 土
+```
+
+NEWSにも書かれているので次のバージョンが登録されたら機能することは間違い無いと思うが、今は`forcats::fct_recode`を使う次の方法で対処している。早く出て欲しい...
+
+```{r}
+library(forcats)
+d.mod <- d %>% 
+  mutate(
+    wd_j = fct_recode(as.factor(wd), 
+           日曜日 = "1", 月曜日 = "2", 火曜日 = "3", 水曜日 = "4",
+           木曜日 = "5", 金曜日 = "6", 土曜日 = "7"))
+d.mod$wd_j
+```
+
+**20170510追記**
+
+そういえば、過去の[r-wakalang]()にて同様のやりとりがあったことを思い出した（発見した）。Rに標準実装されるbeseパッケージ内の関数`weekdays()`はデフォルトで現在利用中のロケールにあった曜日を返してくれる。こちらの方が手軽感がある。
+
+```{r}
+weekdays(lubridate::today() - 0:6)
+```
+
+注意として、文字列であるが因子にはなっていない。
+

@@ -1,0 +1,146 @@
+---
+title: "esa.ioをもっと好きになるためにesa.ioのAPIをRで使えるようにする" 
+author: "Shinya Uryu"
+date: "2016年1月19日"
+output: 
+  md_document:
+    variant: markdown_github
+---
+
+```{r [SETTING], include = FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = FALSE, 
+                      message = FALSE, error = FALSE, warning = FALSE,
+                      fig.align = "center")
+```
+
+```{r, eval = FALSE, include = FALSE}
+library(remoji)
+```
+
+昨年の11月から[esa.io](http://esa.io/)のアカウントを作って、チームではなくて個人の作業メモとして使っていた。といっても最初の１週間でほとんど使わなくなってしまい、[２ヶ月の無料試用の期限](https://esa.io/pricing)が近づいてきてしまった。さてこのままフリートライアルでやめてしまうのももったいないような気がして、<span class="hlt_bf">esa.ioを使い続けるためにRからesa.ioを操作できるようになれば良いような気がしてAPIを触ってみた</span>、という記事（APIラッパーパッケージを作成する勉強をかねて、~~そのうちパッケージ化したい~~見よう見まねで作成した。まだすべてのAPIをカバーしているわけではないし、ドキュメントやテストも不足している...）。。
+
+## `r emoji("hatching_chick")` パッケージ化以前
+
+APIの操作だけなので **`{httr}`**パッケージを使えば大体のことができてしまう。
+
+```{r, eval = TRUE}
+library(httr)
+```
+
+使用するのは[esa API v1](https://docs.esa.io/posts/102)。アクセストークンをURIクエリに含めることもできるが、リクエストヘッダに指定しておく方が便利なので`Sys.setenv("ESA_IO_TOKEN" = "<token>")`なりなんなりしておく。
+
+```{r, eval = TRUE}
+# APIへの接続テスト
+#   ステータスコード 200が返ってきていることを確認
+GET("http://api.esa.io",
+          path   = "/v1/teams",
+          config = httr::add_headers(`Authorization` = paste("Bearer", Sys.getenv("ESA_IO_TOKEN")),
+                                     `Content-Type`  = "application/json")) %>% 
+  status_code()
+```
+
+こんな感じで利用したいAPIメソッドとパラメータを指定した関数を実行する。**今回利用したいのは「記事の一覧取得」「投稿の取得」「記事の作成」「記事の編集」「記事の削除」の５つ**。
+
+リクエストヘッダの作成を都度やるのが面倒なのでrequestオブジェクトとして保存しておく。
+
+```{r, eval = TRUE}
+headers <- httr::add_headers(`Authorization` = paste("Bearer", Sys.getenv("ESA_IO_TOKEN")),
+                             `Content-Type`  = "application/json")
+```
+
+```{r, eval = TRUE, echo = FALSE}
+team_name <- "us-lab"
+```
+
+またAPIを叩くときにチーム名も必要なパラメータなので、オブジェクトにしておくと良い。
+
+```{r, eval = FALSE, echo = TRUE}
+# 適宜変更
+team_name <- "<team name>"
+```
+
+準備はこれで終い。早速利用するAPIを叩いてみる。
+
+```{r, eval = TRUE}
+# 記事の一覧取得... https://docs.esa.io/posts/102#7-1-0
+res_back <- GET("http://api.esa.io",
+           path = paste("v1/teams", team_name, "posts", sep = "/"),
+           config = headers) %>% content()
+```
+
+**`{purrr}`**パッケージを使ってごにょごにょするのも良いかもしれない。
+
+```{r, eval = TRUE, results = 'asis'}
+res_back$posts %>% purrr::map_df(~ .[c("number", "name", "wip", "updated_at")]) %>% 
+  head(3) %>% 
+  knitr::kable(format = "markdown")
+```
+
+```{r, eval = FALSE, echo = TRUE}
+# 投稿の取得... https://docs.esa.io/posts/102#7-2-0
+post_num <- 15
+res_back <- GET("http://api.esa.io",
+           path = paste("v1/teams", team_name, "posts", post_num, sep = "/"),
+           config = headers) %>% content()
+```
+
+```{r, eval = FALSE, echo = TRUE}
+# 記事の作成... https://docs.esa.io/posts/102#7-3-0
+POST("https://api.esa.io",
+     path = paste("v1/teams", team_name, "posts", sep = "/"),
+     config = headers,
+     body = list(name    = "{httr}パッケージを使ってesa API経由で記事を投稿するテスト",
+                 body_md = "ほげほげ",
+                 wip     = TRUE,
+                 tags    = array("sandbox")),
+     encode = "json")
+```
+
+記事の編集はPATCHメソッドを利用すれば良いが、そのまま使うと前にあったテキストがなくなってしまう。以前のテキストも残すためには一度「投稿の取得」でやったように記事の内容を取得しておく必要があるっぽかった。
+
+```{r, eval = FALSE, echo = TRUE}
+# 記事の編集... https://docs.esa.io/posts/102#7-4-0
+PATCH("https://api.esa.io",
+      path = paste("v1/teams", team_name, "posts", post_num, sep = "/"),
+      config = headers,
+      body = list(body_md = paste("これでどうでしょ", res_back$body_md, sep = "\n"),
+                  original_revision = list(body_md = res_back$body_md,
+                                           user = res_back$updated_by$screen_name)),
+      encode = "json")
+```
+
+```{r, eval = FALSE, echo = TRUE}
+# 記事の削除... https://docs.esa.io/posts/102#7-5-0
+DELETE("https://api.esa.io",
+       path = paste("v1/teams", team_name, "posts", post_num, sep = "/"),
+       config = header)
+```
+
+## `r emoji("chicken")` パッケージ化
+
+上記の一連の処理を簡単にできるようにパッケージ化した。
+
+またAPIからはテンプレートを利用できないが、Rmdでテンプレートを作成しておいて、`ramrkdown::render()`して生成したmdファイルをPOSTすれば良いかな、という感じなので、テンプレートを含んだパッケージを作成した。このことでRStudioで作ったRmdファイルをRの実行コードをつけたmdファイルに変換したファイルをesa.ioに記事としてあげることが可能になった。
+
+```{r, eval = FALSE, echo = TRUE}
+githubinstall::install_github_package("uribo/esa.io")
+```
+
+```{r, eval = TRUE}
+library(esa.io)
+```
+
+```{r, eval = FALSE}
+create_rmd_post(team_name, 
+                file = "160119_esa_io_httr.Rmd", 
+                post_name = paste(emoji("hatched_chick"), "esa.ioをもっと好きになるためにesa.ioのAPIをRで使えるようにする"))
+```
+
+この`create_rmd_post()`関数で投稿した記事はこんな感じ。
+
+https://esa-pages.io/p/sharing/2489/posts/20/28204c08b97c26e7c72b.html
+
+
+## `r emoji("tea")` 所感
+
+正直、 **`{httr}`**パッケージの使い方とかウェブAPIについての理解が足りなかったので既存のAPIラッパーパッケージを参考にしまくった。特に [**`{qiitar}`**](https://github.com/yutannihilation/qiitr) と [**`{estatapi}`**](https://github.com/yutannihilation/estatapi)のソースコードを公開してくださっている @yutannihilation さんには圧倒的感謝。

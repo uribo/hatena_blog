@@ -1,0 +1,337 @@
+---
+title: "Google Cloud Vision API で生物の同定を行えるか" 
+author: "Shinya Uryu"
+date: "2016年2月23日"
+output: 
+  md_document:
+    variant: markdown_github
+---
+
+```{r [SETTING], include = FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = FALSE, 
+                      message = FALSE, error = FALSE, warning = FALSE,
+                      fig.align = "center",
+                      tidy = TRUE,
+                      tidy.opts = list(blank = FALSE, width.cutoff = 40))
+```
+
+```{r, eval = TRUE, include = FALSE}
+library(remoji)
+```
+
+機械学習ベースで画像認識・分類を行う[Google Cloud Vision API](https://cloud.google.com/vision/)をR上で利用するコードをdichikaさんが書いてくれたので、それを使って写真から<span class = "hlt_bf">いろいろな分類群の生物（主に植物）を同定することが可能なのかを検証してみたい</span>。
+
+http://d.hatena.ne.jp/dichika/20160223/p1
+
+まずは簡単そうなものから。
+
+-----
+
+画像は基本的にFlickrにアップロードしたものを表示しているが、実際に使ったのはすべてローカルにあるファイル。あと、出力した結果を見やすくするために**`{formattable}`**を使って、ちょっと手を加えた。
+
+```{r, eval = TRUE}
+library(magrittr)
+library(formattable)
+library(jsonlite)
+library(dplyr)
+```
+
+
+```{r, eval = TRUE, echo = FALSE}
+getResult <- function(f, type = "TEXT_DETECTION"){
+  library("httr")
+  library("base64enc")
+  CROWD_VISION_KEY <- "AIzaSyCUcT2td4IHen7n8unuvWcc0u4YJQnHQsA"
+  u <- paste0("https://vision.googleapis.com/v1/images:annotate?key=", CROWD_VISION_KEY)
+  img <- readBin(f, "raw", file.info(f)[1, "size"])
+  base64_encoded <- base64encode(img)
+  body <- list(requests = list(image = list(content = base64_encoded),
+                               features = list(type = type,
+                                               maxResults = 10))
+  )
+  
+  res <- POST(url = u,
+              encode = "json",
+              body = body,
+              content_type_json())
+}
+```
+
+```{r, eval = FALSE, echo = FALSE, results = 'asis'}
+getResult("/Users/uri/Pictures/watermelon.jpg", "LABEL_DETECTION") %>% 
+  content(as = "text") %>% 
+  fromJSON() %$% 
+  responses$labelAnnotations %>% 
+  as.data.frame() %>% 
+  dplyr::select(description, score) %>% 
+  formattable(list(score = color_bar("tomato")))
+```
+
+続いてはこちら。イチョウの写真。
+
+<a data-flickr-embed="true"  href="https://www.flickr.com/photos/_suika/25189267086/in/dateposted-public/" title="IMG_2642"><img src="https://farm2.staticflickr.com/1530/25189267086_5bb5d9d9e5.jpg" width="500" height="375" alt="IMG_2642"></a><script async src="//embedr.flickr.com/assets/client-code.js" charset="utf-8"></script>
+
+```{r, eval = FALSE, echo = FALSE, results = 'asis'}
+getResult("/Users/uri/Dropbox/Plants/Gymnospermae_裸子植物門/Ginkgoaceae イチョウ科/Ginkgo biloba イチョウ/IMG_2642.JPG", "LABEL_DETECTION") %>% 
+  content(as = "text") %>% 
+  fromJSON() %$% 
+  responses$labelAnnotations %>% 
+  as.data.frame() %>% 
+  dplyr::select(description, score) %>% 
+  formattable(list(score = color_bar("tomato")))
+## [[1]]
+##          mid     description     score
+## 1   /m/0htd3 maidenhair tree 0.9999655
+## 2   /m/02wbm            food 0.9613121
+## 3  /m/0c9ph5          flower 0.8531804
+## 4   /m/07j7r            tree 0.8292114
+## 5   /m/04sjm flowering plant 0.7848839
+## 6   /m/05s2s           plant 0.7846511
+## 7   /m/09t49            leaf 0.7616466
+## 8   /m/02xwb           fruit 0.6892226
+## 9  /m/0f4s2w       vegetable 0.6381712
+## 10 /m/07xgrh      ingredient 0.5681704
+```
+
+またしても大正解。楽しい。food？？？
+
+以下、適当にやってみる。皆さんも同定に挑戦してみると良い。結果とスコアだけ表示する。
+
+<a data-flickr-embed="true"  href="https://www.flickr.com/photos/_suika/2463560823/in/datetaken/" title="Michelia figo"><img src="https://farm3.staticflickr.com/2277/2463560823_fd1b177957.jpg" width="500" height="375" alt="Michelia figo"></a>
+
+```{r, eval = FALSE, echo = FALSE, results = 'asis'}
+getResult("/Users/uri/Downloads/michelia-figo_2463560823_o.jpg", "LABEL_DETECTION") %>% 
+  content(as = "text") %>% 
+  fromJSON() %$% 
+  responses$labelAnnotations %>% 
+  as.data.frame() %>% 
+  dplyr::select(description, score) %>% 
+  formattable(list(score = color_bar("tomato")))
+```
+
+オガタマノキ *Michelia compressa* を当てることはできなかった。
+
+<a data-flickr-embed="true"  href="https://www.flickr.com/photos/_suika/25216145835/in/dateposted-public/" title="IMG_4373"><img src="https://farm2.staticflickr.com/1460/25216145835_987c212d62.jpg" width="500" height="375" alt="IMG_4373"></a>
+
+```{r, eval = FALSE, echo = FALSE, results = 'asis'}
+getResult("/Users/uri/Dropbox/Plants/Angiospermae/Asteraceae キク科/Coreopsis lanceolata オオキンケイギク/IMG_4373.JPG", "LABEL_DETECTION") %>% 
+  content(as = "text") %>% 
+  fromJSON() %$% 
+  responses$labelAnnotations %>% 
+  as.data.frame() %>% 
+  dplyr::select(description, score) %>% 
+  formattable(list(score = color_bar("tomato")))
+```
+
+おしい。科はあってる。オオキンケイギク *Coreopsis lanceolata*
+
+<a data-flickr-embed="true"  href="https://www.flickr.com/photos/_suika/24848331029/in/dateposted-public/" title="IMG_1523"><img src="https://farm2.staticflickr.com/1561/24848331029_038f79dd40.jpg" width="500" height="375" alt="IMG_1523"></a>
+
+```{r, eval = FALSE, echo = FALSE, results = 'asis'}
+getResult("/Users/uri/Dropbox/Plants/Angiospermae/Commelinaceae ツユクサ科/Commelina communis ツユクサ/IMG_1523.JPG", "LABEL_DETECTION") %>% 
+  content(as = "text") %>% 
+  fromJSON() %$% 
+  responses$labelAnnotations %>% 
+  as.data.frame() %>% 
+  dplyr::select(description, score) %>% 
+  formattable(list(score = color_bar("tomato")))
+```
+
+いい感じ。人間が被子植物の同定をする際に花の形質に注目するように、機械も花が写っていると認識しやすいのだろうか。というわけで今度は葉でやってみる。
+
+<a data-flickr-embed="true"  href="https://www.flickr.com/photos/_suika/6464768907/in/datetaken/" title="DSC_1409"><img src="https://farm8.staticflickr.com/7007/6464768907_9214e5eb51.jpg" width="500" height="333" alt="DSC_1409"></a>
+
+```{r, eval = FALSE, echo = FALSE, results = 'asis'}
+getResult("/Users/uri/Downloads/dsc_1409_6464768907_o.jpg", "LABEL_DETECTION") %>% 
+  content(as = "text") %>% 
+  fromJSON() %$% 
+  responses$labelAnnotations %>% 
+  as.data.frame() %>% 
+  dplyr::select(description, score) %>% 
+  formattable(list(score = color_bar("tomato")))
+```
+
+低スコアだけどjewelleryを出してきたのは別な意味で評価したい。次。
+
+<a data-flickr-embed="true"  href="https://www.flickr.com/photos/_suika/9656867147/in/datetaken/" title="DSC_8392"><img src="https://farm8.staticflickr.com/7374/9656867147_a272067841.jpg" width="500" height="333" alt="DSC_8392"></a>
+
+```{r, eval = FALSE, echo = FALSE, results = 'asis'}
+getResult("/Users/uri/Desktop/DSC_8392.JPG", "LABEL_DETECTION") %>% 
+  content(as = "text") %>% 
+  fromJSON() %$% 
+  responses$labelAnnotations %>% 
+  as.data.frame() %>% 
+  dplyr::select(description, score) %>% 
+  formattable(list(score = color_bar("tomato")))
+```
+
+<a data-flickr-embed="true"  href="https://www.flickr.com/photos/_suika/5515907427/in/datetaken/" title="DSC_6124"><img src="https://farm6.staticflickr.com/5139/5515907427_7f77d0464c.jpg" width="500" height="333" alt="DSC_6124"></a>
+
+```{r, eval = FALSE, echo = FALSE, results = 'asis'}
+getResult("/Users/uri/Downloads/dsc_6124_5515907427_o.jpg", "LABEL_DETECTION") %>% 
+  content(as = "text") %>% 
+  fromJSON() %$% 
+  responses$labelAnnotations %>% 
+  as.data.frame() %>% 
+  dplyr::select(description, score) %>% 
+  formattable(list(score = color_bar("tomato")))
+```
+
+<a data-flickr-embed="true"  href="https://www.flickr.com/photos/_suika/14685385187/in/datetaken/" title="SDIM1192"><img src="https://farm4.staticflickr.com/3871/14685385187_7b4b0e651a.jpg" width="500" height="333" alt="SDIM1192"></a>
+
+```{r, eval = FALSE, echo = FALSE, results = 'asis'}
+getResult("/Users/uri/Desktop/SDIM1192.jpg", "LABEL_DETECTION") %>% 
+  content(as = "text") %>% 
+  fromJSON() %$% 
+  responses$labelAnnotations %>% 
+  as.data.frame() %>% 
+  dplyr::select(description, score) %>% 
+  formattable(list(score = color_bar("tomato")))
+```
+
+### 植物以外の分類群では＞
+
+<a data-flickr-embed="true"  href="https://www.flickr.com/photos/_suika/2733799969/in/datetaken/" title="Lucanus maculifemoratus〜ミヤマクワガタ"><img src="https://farm4.staticflickr.com/3267/2733799969_48abce326e.jpg" width="375" height="500" alt="Lucanus maculifemoratus〜ミヤマクワガタ"></a>
+
+```{r, eval = FALSE, echo = FALSE, results = 'asis'}
+getResult("/Users/uri/Downloads/lucanus-maculifemoratus_2733799969_o.jpg", "LABEL_DETECTION") %>% 
+  content(as = "text") %>% 
+  fromJSON() %$% 
+  responses$labelAnnotations %>% 
+  as.data.frame() %>% 
+  dplyr::select(description, score) %>% 
+  formattable(list(score = color_bar("tomato")))
+```
+
+<a data-flickr-embed="true"  href="https://www.flickr.com/photos/_suika/5859306288/in/datetaken/" title="DSC_9399"><img src="https://farm4.staticflickr.com/3099/5859306288_4e23fbb68f.jpg" width="500" height="333" alt="DSC_9399"></a>
+
+```{r, eval = FALSE, echo = FALSE, results = 'asis'}
+getResult("/Users/uri/Downloads/dsc_9399_5859306288_o.jpg", "LABEL_DETECTION") %>% 
+  content(as = "text") %>% 
+  fromJSON() %$% 
+  responses$labelAnnotations %>% 
+  as.data.frame() %>% 
+  dplyr::select(description, score) %>% 
+  formattable(list(score = color_bar("tomato")))
+```
+
+
+<a data-flickr-embed="true"  href="https://www.flickr.com/photos/_suika/6187669939/in/datetaken/" title="IMGP2113"><img src="https://farm7.staticflickr.com/6161/6187669939_d397b89417.jpg" width="500" height="375" alt="IMGP2113"></a>
+
+```{r, eval = FALSE, echo = FALSE, results = 'asis'}
+getResult("/Users/uri/Downloads/imgp2113_6187669939_o.jpg", "LABEL_DETECTION") %>% 
+  content(as = "text") %>% 
+  fromJSON() %$% 
+  responses$labelAnnotations %>% 
+  as.data.frame() %>% 
+  dplyr::select(description, score) %>% 
+  formattable(list(score = color_bar("tomato")))
+```
+
+<a data-flickr-embed="true"  href="https://www.flickr.com/photos/_suika/9849316493/in/datetaken/" title="Untitled"><img src="https://farm6.staticflickr.com/5481/9849316493_4c694f730d.jpg" width="500" height="375" alt="Untitled"></a>
+
+```{r, eval = FALSE, echo = FALSE, results = 'asis'}
+getResult("/Users/uri/Desktop/2013-09-19 13.06.15.jpg", "LABEL_DETECTION") %>% 
+  content(as = "text") %>% 
+  fromJSON() %$% 
+  responses$labelAnnotations %>% 
+  as.data.frame() %>% 
+  dplyr::select(description, score) %>% 
+  formattable(list(score = color_bar("tomato")))
+```
+
+<a data-flickr-embed="true"  href="https://www.flickr.com/photos/_suika/25217055295/in/dateposted-public/" title="DSC_1835"><img src="https://farm2.staticflickr.com/1632/25217055295_eeb0e3c1c4.jpg" width="500" height="333" alt="DSC_1835"></a>
+
+```{r, eval = FALSE, echo = FALSE, results = 'asis'}
+getResult("/Users/uri/Desktop/DSC_1835.JPG", "LABEL_DETECTION") %>% 
+  content(as = "text") %>% 
+  fromJSON() %$% 
+  responses$labelAnnotations %>% 
+  as.data.frame() %>% 
+  dplyr::select(description, score) %>% 
+  formattable(list(score = color_bar("tomato")))
+```
+
+<a data-flickr-embed="true"  href="https://www.flickr.com/photos/_suika/7031104297/in/datetaken/" title="DSC_3256"><img src="https://farm8.staticflickr.com/7197/7031104297_9e0faf062b.jpg" width="500" height="333" alt="DSC_3256"></a>
+
+```{r, eval = FALSE, echo = FALSE, results = 'asis'}
+getResult("/Users/uri/Downloads/dsc_3256_7031104297_o.jpg", "LABEL_DETECTION") %>% 
+  content(as = "text") %>% 
+  fromJSON() %$% 
+  responses$labelAnnotations %>% 
+  as.data.frame() %>% 
+  dplyr::select(description, score) %>% 
+  formattable(list(score = color_bar("tomato")))
+```
+
+#### 魚類
+
+<a data-flickr-embed="true"  href="https://www.flickr.com/photos/_suika/3940608230/in/datetaken/" title="マンボウ_04"><img src="https://farm3.staticflickr.com/2623/3940608230_a7a74e0eba.jpg" width="500" height="333" alt="マンボウ_04">
+
+```{r, eval = FALSE, echo = FALSE, results = 'asis'}
+getResult("/Users/uri/Downloads/_04_3940608230_o.jpg", "LABEL_DETECTION") %>% 
+  content(as = "text") %>% 
+  fromJSON() %$% 
+  responses$labelAnnotations %>% 
+  as.data.frame() %>% 
+  dplyr::select(description, score) %>% 
+  formattable(list(score = color_bar("tomato")))
+```
+
+
+### 擬態編
+
+擬態っぽく、背景に溶け込んでいる生物をきちんと発見できるのかのテスト。
+
+<a data-flickr-embed="true"  href="https://www.flickr.com/photos/_suika/13148087175/in/datetaken/" title="DSC_9458"><img src="https://farm4.staticflickr.com/3757/13148087175_122bb6ca97.jpg" width="500" height="333" alt="DSC_9458"></a>
+
+```{r, eval = FALSE, echo = FALSE, results = 'asis'}
+getResult("/Users/uri/Desktop/DSC_9458.jpg", "LABEL_DETECTION") %>% content(as = "text") %>% 
+  fromJSON() %$% 
+  responses$labelAnnotations %>% 
+  as.data.frame() %>% 
+  dplyr::select(description, score) %>% 
+  formattable(list(score = color_bar("tomato")))
+```
+
+<a data-flickr-embed="true"  href="https://www.flickr.com/photos/_suika/13147055655/in/datetaken/" title="DSC_9010"><img src="https://farm8.staticflickr.com/7385/13147055655_d401e03a31.jpg" width="500" height="333" alt="DSC_9010"></a>
+
+```{r, eval = FALSE, echo = FALSE, results = 'asis'}
+getResult("/Users/uri/Desktop/DSC_9010.jpg", "LABEL_DETECTION") %>% content(as = "text") %>% 
+  fromJSON() %$% 
+  responses$labelAnnotations %>% 
+  as.data.frame() %>% 
+  dplyr::select(description, score) %>% 
+  formattable(list(score = color_bar("tomato")))
+```
+
+<a data-flickr-embed="true"  href="https://www.flickr.com/photos/_suika/9656784349/in/datetaken/" title="SDIM0728"><img src="https://farm8.staticflickr.com/7325/9656784349_3e3d0b1b0d.jpg" width="500" height="333" alt="SDIM0728"></a>
+
+```{r, eval = FALSE, echo = FALSE, results = 'asis'}
+getResult("/Users/uri/Desktop/SDIM0728.JPG", "LABEL_DETECTION") %>% content(as = "text") %>% 
+  fromJSON() %$% 
+  responses$labelAnnotations %>% 
+  as.data.frame() %>% 
+  dplyr::select(description, score) %>% 
+  formattable(list(score = color_bar("tomato")))
+```
+
+```{r, eval = FALSE, echo = FALSE, results = 'asis'}
+getResult("/Users/uri/Downloads/8299860406_111899e105_z.jpg", "LABEL_DETECTION") %>% content(as = "text") %>% 
+  fromJSON() %$% 
+  responses$labelAnnotations %>% 
+  as.data.frame() %>% 
+  dplyr::select(description, score) %>% 
+  formattable(list(score = color_bar("tomato")))
+```
+
+```{r, eval = FALSE, echo = FALSE, results = 'asis'}
+getResult("/Users/uri/Downloads/8299860406_111899e105_z.jpg", "LABEL_DETECTION") %>% content(as = "text") %>% 
+  fromJSON() %$% 
+  responses$labelAnnotations %>% 
+  as.data.frame() %>% 
+  dplyr::select(description, score) %>% 
+  formattable(list(score = color_bar("tomato")))
+```
+
+

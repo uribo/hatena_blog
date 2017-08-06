@@ -1,0 +1,134 @@
+---
+title: "階層構造になっているファイル（XML, JSON）をRで見やすく表示する" 
+author: "Shinya Uryu"
+date: "2016年1月23日"
+output: 
+  md_document:
+    variant: markdown_github
+---
+
+```{r [SETTING], include = FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = FALSE, 
+                      message = FALSE, error = FALSE, warning = FALSE,
+                      fig.align = "center",
+                      tidy = TRUE,
+                      tidy.opts = list(blank = FALSE, width.cutoff = 40))
+```
+
+```{r, eval = FALSE, include = FALSE}
+library(remoji)
+```
+
+ウェブAPIやオープンデータとして公開されているリソースの提供形式としてXMLやJSONが利用されることが多い。RでXMLやJSONなどの構造式のファイルを読み込むことは簡単だが、だいたいのパッケージで読み込んだオブジェクトはリストになっている。リストクラスオブジェクトは、構造を把握するのが難しく操作がしにくい。リストデータに対して処理を行う**`{lambdaR}`**や**`{rlist}`**、**`{purrr}`**を使うためにはその構造を理解していることが前提である。
+
+というわけで気楽にファイルの構造を把握したい。そこでboB Rudis作成のパッケージとRStudioを利用する。[**`{xmlview}`**](https://github.com/hrbrmstr/xmlview)と[**`{jsonview}`**](https://github.com/hrbrmstr/jsonview)はそれぞれXML、JSON形式のファイルを読み込んだ後にRStudio上で階層構造を見やすく表示するためのパッケージである。
+
+## 基本的な使い方
+
+２つのパッケージの働きは類似している。対象のXML、JSONファイルを読み込みのための関数`xml2::read_xml()`、`jsonlite::fromJSON()`あるいは`readLines()`でR上でオブジェクトとしたものをXMLなら`xml_view()`、JSONなら`json_view()`で表示させる。表示にはRStudioのViewerパネルが使われる。手元の構造式のテキストを直接渡しても良い。
+
+```{r, eval=TRUE}
+library(xml2)
+library(xmlview)
+```
+
+
+```{r, eval = FALSE, echo = TRUE}
+# XMLファイルの例として、
+# 鯖江市が提供するオープンデータ http://www.city.sabae.fukui.jp/pageview.html?id=11552 の中から
+# 「鯖江市西山動物園の動物データ」http://www.city.sabae.fukui.jp/pageview.html?id=12431 (CC BY)
+# を表示させる。このリソースはXMLで提供されている
+x <- xml2::read_xml("http://www3.city.sabae.fukui.jp/xml/zoo/nisiyamazoo.xml")
+
+xml_view(x)
+```
+
+表示する際のオプションとして豊富なテーマスタイルが備わっている。`json_view()`の*style*引数に渡すテーマスタイルの一覧は`highlight_styles()`で確認できる（`xmlview::highlight_styles()`と同じ）　。
+
+```{r, eval=TRUE}
+highlight_styles() %>% {
+  # 適当に表示
+  sample(., 5) %>% print()
+  # 現在のテーマ数
+  length(.)
+}
+```
+
+今度はJSONファイルを表示してみよう。
+
+```{r}
+library(jsonview)
+
+json_view('{
+    "name": [
+        "タイトル"
+    ],
+    "body_md": [
+        "ほげほげ"
+    ],
+    "tags": [
+        "sandbox",
+        "demo",
+        "package"
+    ]
+}',
+style = "paraiso-light")
+```
+
+```{r, eval=FALSE, echo=TRUE}
+# readLines経由でも良い
+readLines("http://www3.city.sabae.fukui.jp/xml/zoo/nisiyamazoo.xml") %>% 
+  xml_tree_view()
+
+# JSONファイルの読み込みはjsonlite::fromJSON()を使うと良い
+library(jsonlite)
+fromJSON("https://gist.github.com/uribo/66d1c128ec2570976a73/raw/6ddf43945117601a3c1e6da76eff62ef1391f6f5/gistfile1.topojson") %>% 
+  json_view()
+```
+
+**`{xmlview}`**の方では表示形式を`xml_tree_view()`とすることもできる。また`xml_view()`の引数*add_filter*で*TRUE*を指定すれば表示する領域をインタラクティブに抽出できる。はじめからxpathがわかっていれば*apply_xpath*引数に対象のxpathを渡して表示範囲を制限しても良い。
+
+```{r, eval=FALSE, echo=TRUE}
+xml_tree_view(x)
+
+xml_view(x, add_filter = TRUE, apply_xpath = ".//dataroot")
+
+# 上記のものと同じ処理
+x %>% xml_find_all(xpath = "./.") %>% xml_view()
+```
+
+**`{jsonview}`**はリポジトリが公開されたのが今日（2016-01-23）で、まだフィルター機能ついていない。バージョンは`r packageVersion("jsonview")`（**`{xmlview}`**は`r packageVersion("xmlview")`）。そのうち同等の機能がつくような気がする。
+
+## 応用例
+
+`httr::POST()`するときとか、`list()`オブジェクトをJSONにしたものを渡すことになるので、事前に確認するために使えそう。
+
+```{r, eval = FALSE, echo = TRUE}
+list(name    = "タイトル",
+                 body_md = "ほげほげ",
+                 tags    = array(c("sandbox", "demo", "package"))) %>% 
+  unclass() %>% jsonlite::toJSON() %>% json_view()
+```
+
+ウェブAPIラッパーパッケージでデータを取得した後にも便利。
+
+```{r, eval=FALSE, echo=TRUE}
+gh::gh(endpoint = "GET /users/:username/repos", username = "uribo") %>% 
+  json_view()
+```
+
+## `r emoji("computer")` 実行環境
+
+```{r, eval=FALSE, results = 'asis'}
+devtools::session_info() %$% packages %>% 
+  dplyr::filter(`*`  == "*") %>% 
+  dplyr::select(package, version, source) %>% 
+  knitr::kable(format = "markdown")
+```
+
+|package  |version     |source                             |
+|:--------|:-----------|:----------------------------------|
+|jsonlite |0.9.19      |CRAN (R 3.2.2)                     |
+|jsonview |0.1.0       |Github (hrbrmstr/jsonview@64cc963) |
+|xml2     |0.1.2       |CRAN (R 3.2.0)                     |
+|xmlview  |0.4.7       |Github (hrbrmstr/xmlview@5913b30)  |

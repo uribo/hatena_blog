@@ -1,0 +1,40 @@
+---
+title: "messyな時間データをtidyに"
+author: "Shinya Uryu"
+date: "2015年9月22日"
+output: 
+  md_document:
+    variant: markdown_github
+---
+
+http://notchained.hatenablog.com/entry/2015/09/22/072820
+
+http://d.hatena.ne.jp/dichika/20151016/p1
+
+http://d.hatena.ne.jp/teramonagi/20151017/1445035087
+
+話についていけてないぞ。
+
+```{r}
+library(readr)
+library(dplyr)
+library(lubridate)
+library(stringi)
+set.seed(1)
+x <- runif(50, max = 60)
+d <- data.frame(timestamp = now() + seconds(cumsum(x)))
+
+d %>%
+  group_by(m = floor_date(timestamp, unit = "minute")) %>%
+  summarise(count = n())
+
+d %>% group_by(m = floor_date(timestamp, unit = "hour") + minutes(floor(minute(timestamp) / 10) * 10)) %>% 
+  summarise(count = n())
+
+d %>% mutate_each(funs(month, day, year, hour, minute, second), 
+            timestamp) %>% 
+  group_by(m = floor_date(timestamp, unit = "hour") +
+        minutes(floor(minute(timestamp) / 3) * 3)) %>% 
+  summarise(n = n())
+```
+

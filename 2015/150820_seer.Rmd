@@ -1,0 +1,40 @@
+---
+title: "seerパッケージでCRANに登録されているパッケージを探す"
+author: "Shinya Uryu"
+date: "2015年8月20日"
+output: 
+  md_document:
+    variant: markdown_github
+---
+
+Rはパッケージを導入することでさまざまな用途に使用できるようになる。世の中には多種多様なパッケージが存在し、これらのパッケージを管理するCRAN (Comprehensive R Archive Network for the R programming language) において、[今月12日に登録されたパッケージが7000件を超えた](http://www.jottr.org/2015/08/milestone-7000-packages-on-cran.html)ということが話題になった。GitHubによるパッケージ開発が中心になりつつあるが、今後もCRANの存在は揺るぎないものだ。
+
+そんなCRANに登録されているパッケージの情報をR上で検索できるパッケージを [meta cran](http://www.r-pkg.org) おじさん（愛称）ことGabor Csardiさん（<i class="fa fa-github"></i> [@gaborcsardi](https://github.com/gaborcsardi) ）が作成されている。READMEの内容通りだが使い方をメモしておく。
+
+[https://github.com/metacran/seer:embed:cite]
+
+```{r}
+# devtools::install_github("metacran/seer")
+# {devtools}パッケージを使って開発版をインストール
+library(seer)
+```
+
+主要な関数はトピックでパッケージの検索を行う`see()`とより詳細な情報を引き出す`more()`である。
+
+```{r, eval = TRUE}
+see(query  = "ggplot2")
+```
+
+みんな大好き`{ggplot2}`の検索結果。545のパッケージがヒットした（DESCRIPTIONにqueryとマッチするとヒットするのかな）。
+
+`see()`には*query*引数のほか表示方法の指定を行う*format*や出力数を制限する*size*引数がある。
+
+```{r, eval = FALSE}
+see(query  = "ggplot2", 
+    format = "long", # 初期値は"short"
+    size   = 1) # 取得する件数を制限する。
+```
+
+もう一つの`more()`関数は、直前に検索したパッケージ情報について、`see()`の引数`format`を反転させた結果を表示するものである。以前に`see(format = "long")`で検索していたら`more()`の結果は引数をlongにしたものとなる。
+
+便利なパッケージなので開発を見守っていきたい。なお今回試した`{seer}`のバージョンは `r packageVersion("seer")` 。

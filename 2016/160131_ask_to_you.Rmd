@@ -1,0 +1,66 @@
+---
+title: "Rから気になるあの子に質問したい" 
+author: "Shinya Uryu"
+date: "2016年1月31日"
+output: 
+  md_document:
+    variant: markdown_github
+---
+
+```{r [SETTING], include = FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = FALSE, 
+                      message = FALSE, error = FALSE, warning = FALSE,
+                      fig.align = "center",
+                      tidy = TRUE,
+                      tidy.opts = list(blank = FALSE, width.cutoff = 40))
+```
+
+```{r, eval = TRUE, include = FALSE}
+library(remoji)
+library(magrittr)
+```
+
+https://twitter.com/dichika/status/691615827271942144
+
+最近のR界隈では[Ask.Fm](https://ask.fm/)というウェブサービスが流行っています。こちらのサービスはいわゆる質問系のウェブサービスで、ユーザー間で質問のやり取りができる、というものです。ユーザー登録が必要ですが匿名で質問できます。
+
+というわけでRからAsk.Fmに投稿する**関数**を[書きました](https://gist.github.com/uribo/9c5b813fd5d35b012cb6)（パッケージ化に至らず）。gist経由でご使用になりれます。ご査収ください。
+
+```{r}
+# 依存パッケージを読み込む
+library(RCurl)
+library(xml2)
+library(rvest)
+devtools::source_gist("https://gist.github.com/uribo/9c5b813fd5d35b012cb6")
+```
+
+```{r, eval = FALSE}
+ask2you(interviewee = "uri_ushi",
+        message      = "自演乙",
+        as.anonymous = TRUE,
+        cookies      = "cookies.txt")
+
+ask2you(interviewee = "yutannihilation",
+        message      = "私はRの妖精、Rからあなたに質問したくて関数になりました！",
+        as.anonymous = TRUE,
+        cookies      = "cookies.txt")
+```
+
+面倒なのは*cookies.txt*を用意するところです。私はファイルを保存するためにGoogle Chromeの"[cookies.txt](https://chrome.google.com/webstore/detail/cookiestxt/njabckikapfpffapmjgojcnbfjonfjfg)"という拡張を使用しましたが、Rでなんとかやりたいところです。
+
+クッキーが有効でないと怒られたら、再度*cookies.txt*を作ってください。
+
+### 所感
+
+* 他のプログラミング言語でできているので、ちょっとした敗北感が残った。
+* 思ったよりも時間がかかりました。そしてなんだか面倒な方法になっています。もっとスマートに書けるはず！光の戦士が来てくれることに期待。
+
+Enjoy!
+
+... 流行に便乗してアカウント載せておきますね。
+
+https://ask.fm/uri_ushi
+
+... こっちだった。
+
+https://ask.fm/berobero11/

@@ -1,0 +1,249 @@
+---
+title: "RでJSONパーサーのjqを使って快適なAPI暮らしを" 
+author: "Shinya Uryu"
+date: "2016年3月13日"
+output: 
+  md_document:
+    variant: markdown_github
+---
+
+```{r [SETTING], include = FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = TRUE, 
+                      message = FALSE, error = FALSE, warning = FALSE,
+                      fig.align = "center",
+                      tidy = FALSE,
+                      tidy.opts = list(blank = FALSE, width.cutoff = 40))
+```
+
+```{r, eval = TRUE, include = FALSE}
+library(magrittr)
+library(remoji)
+```
+
+jqというC言語で書かれた軽量のJSONパーサー（コンピュータが読みやすい表示になっているものを人間でも見やすくする感じのもの）の一種である[jq](https://stedolan.github.io/jq/)の機能をRに導入した[**`{jqr}`**](https://cran.r-project.org/package=jqr)パッケージを試したのでメモ。
+
+本家のjqでできることはだいたいできる（対応しているバージョンは[jq 1.4](https://stedolan.github.io/jq/manual/v1.4/)）と思うけど、jq自体の経験がないのでよくわかっていない部分がある。ただ、APIラッパーのパッケージや関数を書くときに**`{jqr}`**がなかなか良さそうだ。
+
+[RubicureAPI](https://rubicure.herokuapp.com/)と[政府統計 e-Stat API](http://www.e-stat.go.jp/api/)使って試してみる。
+
+なおJSONのような階層構造のあるデータをR上で可視化するのに**`{xmlview}`** や**`{jsonview}`**が便利である。
+
+http://uribo.hatenablog.com/entry/2016/01/23/134951
+
+## どういうときに使うのか
+
+ウェブAPIに対して有効なリクエストを送ると、JSON形式でコンテンツが帰ってくることが多い。HTTPリクエストをR上で実行する**`{httr}`**では、次のようによしなに整形した値を表示してくれてそれはそれでありがたいのだけど、listクラスオブジェクトなので、data.frameクラスオブジェクトに対して処理が面倒だったりする。<span class = "hlt_bf">もっと気楽にお手軽に、JSONの値に対して演算を行ったり必要な情報の抽出や加工をしてみたいことがある。そんなときに**`{jqr}`**を使うと良い</span>。
+
+```{r}
+library(httr)
+```
+
+```{r, echo = TRUE, eval = FALSE}
+GET("https://rubicure.herokuapp.com/series.json") %>% 
+  content() %>% 
+  str()
+
+# List of 13
+#  $ :List of 5
+#   ..$ series_name : chr "unmarked"
+#   ..$ title       : chr "ふたりはプリキュア"
+#   ..$ started_date: chr "2004-02-01"
+#   ..$ ended_date  : chr "2005-01-30"
+#   ..$ girls       :List of 2
+#   .. ..$ : chr "cure_black"
+#   .. ..$ : chr "cure_white"
+# ... 省略
+```
+
+`content()`関数の引数に*text*を指定すると、文字列としてJSONがそのまま帰ってくる。**`{jqr}`**を利用する際は`as = 'text'`としておくのが良いだろう。
+
+```{r}
+cure.json <- GET("https://rubicure.herokuapp.com/series.json") %>% 
+  content(as = "text", encoding = "utf-8")
+```
+
+### jqrの関数
+
+```{r}
+library(jqr)
+```
+
+jqのもっとも簡単な使い方として、圧縮されたJSONを人間が見やすい形に展開することである。それには`jq()`関数を使う。jqのコマンドが利用できるのですでにjqについて理解している場合はこれを使うのがもっとも便利そうだ。
+
+```{r, echo = TRUE, eval = FALSE}
+jq(cure.json, ".")
+# [
+#     {
+#         "series_name": "unmarked",
+#         "title": "ふたりはプリキュア",
+#         "started_date": "2004-02-01",
+#         "ended_date": "2005-01-30",
+#         "girls": [
+#             "cure_black",
+#             "cure_white"
+#         ]
+#     },
+# ...
+# ]
+
+# 出力する要素の位置を指定する
+jq(cure.json, ".[2]")
+# {
+#     "series_name": "splash_star",
+#     "title": "ふたりはプリキュア Splash☆Star",
+#     "started_date": "2006-02-05",
+#     "ended_date": "2007-01-28",
+#     "girls": [
+#         "cure_bloom",
+#         "cure_egret"
+#     ]
+# }
+
+# jq(cure.json, ".[2:5]") # 2以上5未満の配列
+
+# jq(cure.json, ".[]|.girls") # girlsキーの値を返す
+# jq(cure.json, ".[].girls | @csv")
+# jq(cure.json, "map({series_name: .series_name})")
+```
+
+jqのコマンドに慣れていなくても、専用の関数が用意されているので、jqを理解するまではこちらを使いたい。
+
+```{r, eval = TRUE}
+# index()とjqコマンドの.[]は同じ結果を出力する
+all.equal(cure.json %>% index(), cure.json %>% jq(".[]"))
+```
+
+`index()`によってインデックス化したjqrクラスオブジェクト（`jq()`ではjqsonクラスオブジェクト）に対しては、さまざまな処理を加えられる。また関数`select()`を使い、任意のキーを抽出したり、キーの名称を変更することもできる。
+
+```{r}
+cure.json.index <- cure.json %>% index() %>% 
+  select(series_name   = .series_name,
+         title         = .title,
+         started_date  = .started_date,
+         ended_date    = .ended_date,
+         girls         = .girls)
+
+cure.json %>% lengthj()
+```
+
+キーの名称を取得するのに`keys()`を使う
+
+```{r}
+cure.json.index[2] %>% keys()
+```
+
+各キーの値についてJSONがサポートしている以下のデータ型の判定をする。
+
+- 数値 numbers
+- 文字列 strings
+- ブール型 booleans
+- 配列 arrays
+- オブジェクト objects
+- "null"
+
+```{r}
+# jq(cure.json.index[1], 'map(type)')
+cure.json.index[1] %>% types()
+```
+
+任意のキーを抽出する方法としては、キーの削除を`del()`を使って行っても良いし、`type()`で指定するのも良いだろう（`types()`と混同しやすい）。
+
+```{r}
+# jq(cure.json, "del(.[].girls)")
+cure.json.index[1] %>% del(girls)
+
+# jq(cure.json, '.[].girls|arrays')
+cure.json.index[1] %>% index() %>% type(arrays)
+```
+
+キーの値を取り出すには`dotstr()`を使うのが良いだろうか。
+
+```{r}
+# jq(cure.json, ".[].series_name|@text")
+cure.json %>% index %>% dotstr(series_name)
+cure.json %>% index() %>% dotstr(title)
+cure.json.index[1] %>% dotstr(title)
+```
+
+並び替え
+
+```{r, echo = TRUE, eval = FALSE}
+cure.json %>% sortj(series_name)
+# [
+#   {
+#     "series_name": "dokidoki",
+#     "title": "ドキドキ！プリキュア",
+#     "started_date": "2013-02-03",
+#     "ended_date": "2014-01-26",
+#     "girls": [
+#       "cure_heart",
+#       "cure_diamond",
+#       "cure_rosetta",
+#       "cure_sword",
+#       "cure_ace"
+#       ]
+#   },
+# ... 省略
+#     {
+#         "series_name": "yes_gogo",
+#         "title": "Yes！ プリキュア5 Go Go！",
+#         "started_date": "2008-02-03",
+#         "ended_date": "2009-01-25",
+#         "girls": [
+#             "cure_dream",
+#             "cure_rouge",
+#             "cure_lemonade",
+#             "cure_mint",
+#             "cure_aqua",
+#             "milky_rose"
+#         ]
+#     }
+# ]
+
+```
+
+
+今回の例ではあまり利用する機会がないが、jqの演算用関数も用意されている。
+
+```{r}
+cure.json %>% minj(started_date)
+cure.json %>% maxj(started_date)
+```
+
+```{r}
+cure.json %>% index() %>% 
+  do(.started_date >= '2010-02-07')
+```
+
+
+jqでは、アウトプットの形式をいろいろ選べて良いが、**`{jqr}`**もその機能をサポートしている。なおcsvにするには対象が配列でないといけないので注意が必要。
+
+```{r}
+# jq(cure.json, ".[].girls|@csv")
+cure.json %>% index() %>% select(title = .series_name) %>% at(text)
+```
+
+`jsonlite::fromJSON()`と同じなのだけど、データフレームに変換するには以下のようにする。
+
+```{r}
+df.cure <- cure.json %>% index() %>% string() %>% jsonlite::fromJSON(txt = .)
+all.equal(df.cure, jsonlite::fromJSON(cure.json))
+
+df.cure %>% tail() %>% knitr::kable(format = "markdown")
+```
+
+### `r emoji("link")` 参考
+
+- [Introduction to jqr](https://cran.r-project.org/web/packages/jqr/vignettes/jqr_vignette.html)
+
+
+### `r emoji("computer")` 実行環境
+
+```{r}
+devtools::session_info() %$% packages %>% 
+  dplyr::filter(`*`  == "*") %>% 
+  dplyr::select(package, version, source) %>% 
+  knitr::kable(format = "markdown")
+```
+
+

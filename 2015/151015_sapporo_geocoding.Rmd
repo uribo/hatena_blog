@@ -1,0 +1,144 @@
+---
+title: "住所から緯度と経度を取得したい: 札幌市の保育所データを例にして"
+author: "Shinya Uryu"
+date: "2015年10月12日"
+output: 
+  md_document:
+    variant: markdown_github
+---
+
+```{r, include = FALSE, cache = FALSE}
+opts_chunk$set(eval = TRUE, message = FALSE, warning = FALSE)
+```
+
+**今北海道が熱い！**（昨日、今年の初雪を観測したらしいが）
+
+北海道関連の記事をよく見かける。例えば、
+
+http://wafdata.hatenablog.com/entry/2015/10/14/225625
+
+https://twitter.com/kazutan/status/653852453809422336
+
+https://twitter.com/MayumiPod/status/654263966370152448
+
+ん？　「道内認可保育所」？？
+
+オープンデータが公開されると、Rで解析したくなってくる。茶飯インシデントである。北海道の保育施設の情報は結構多くて、こういうプロジェクトもある。
+
+http://www.codeforsapporo.org/papamama/
+
+https://github.com/codeforsapporo/papamama
+
+今回公開された「道内認可保育所」のデータでは、**住所はあるが、緯度経度といった座標情報がない。座標がないと地図にプロットできない**。というわけで、すでに完成品があるが、今回新たに公開された「道内認可保育所」のデータを引き出しにして、住所から緯度と経度を求めるということをやってみたい。
+
+使用するパッケージは次のものたち。
+
+```{r}
+library(readxl)
+library(readr)
+library(dplyr)
+```
+
+### オープンデータの中身を確認
+
+```{r}
+# ファイルへの直接リンクではなく、ダウンロード先のURLが載っていて、
+# ちっとか思いながらも手作業でダウンロードしてくる
+path <- "/Users/uri/Downloads"
+excel_sheets(paste(path, "hoikusyo.itiran.xls", sep = "/"))
+
+df_spr <- data_frame()
+read_excel(path      = paste(path, "hoikusyo.itiran.xls", sep = "/"),
+           sheet     = 1, 
+           skip      = 4,
+           col_names = c("no", "地域区分", "設置者区分", "運営者区分",
+                      "主体名", "施設名", "郵便", "住所",
+                      "電話", "利用定員2号", "利用定員3号",
+                      "代表者", "許可年月日"),
+           col_types = c("numeric", "text", "text", "text",
+                         "text", "text", "text", "text",
+                         "text", "numeric", "numeric",
+                         "text", "text")) %>% 
+  {
+    df_spr <<- .
+    print(class(.))
+    glimpse(.)
+  }
+```
+
+今回は「札幌市中央区」にある１か所だけを対象にしたい（選択の理由に意図はない。**全ては`set.seed(71)`の意思のままに...**）。また、余分な列は削除しておくために次のコードを実行する。
+
+```{r}
+# 号がついていたりいなかったりする...
+set.seed(71)
+df_spr %<>% dplyr::filter(地域区分 == "札幌（中)") %>% 
+  dplyr::mutate(., 住所 = gsub("札幌市中央区", "", 住所)) %>% 
+  dplyr::select(施設名, 住所) %>% 
+  slice(., purrr::rdunif(1, nrow(.) ,1))
+df_spr
+```
+
+### 位置参照情報の用意
+
+というわけでこちらの保育施設を例に、住所から緯度経度を求めてみたい。住所から緯度経度を求めるために、国土交通省 位置参照情報ダウンロードサービスを利用する。
+
+```{r}
+#  国土交通省 位置参照情報ダウンロードサービスから中央区のデータを取得
+df_geo <- data_frame()
+readr::read_csv(file   = paste(path, "01101-12.0a/01101_2013.csv", sep = "/"),
+                locale = locale(encoding = "cp932")) %>% 
+  {
+    print(class(.))
+    df_geo <<- . # df_geoというオブジェクトに代入
+    sample_n(., 3) # 幾つかを表示
+  }
+```
+
+保育所のデータと同じく、必要な部分だけを抽出しておく。
+
+```{r}
+df_geo %<>% dplyr::filter(市区町村名 == "札幌市中央区") %>% 
+  dplyr::select(`大字・町丁目名`, `街区符号・地番`, 緯度, 経度)
+```
+
+### 住所から緯度と経度を取得
+
+というわけで最後の処理。位置参照情報ダウンロードサービスでの大字・町丁目名や街区符号・地番では漢数字が適用されているので、保育所データと合わせるためにアラビア数字に変更しておく（つらみ１）。また、該当する位置参照情報が複数あった（保育所データに合わせるため）ので、平均値を代表値として採用した。
+
+```{r}
+df_geo %<>% dplyr::filter(grepl("^北五条西十四丁目", `大字・町丁目名`) 
+                          & grepl("1", `街区符号・地番`)) %>% 
+  dplyr::mutate(`大字・町丁目名` =  gsub("五", "5", `大字・町丁目名`),
+                `大字・町丁目名` =  gsub("十四", "14", `大字・町丁目名`),
+                住所 = paste0(`大字・町丁目名`, `街区符号・地番`, "番地")) %>% 
+  dplyr::group_by(住所) %>% 
+  dplyr::summarise(緯度 = mean(緯度), 経度 = mean(経度)) %>% 
+  dplyr::select(住所, 緯度, 経度)
+```
+
+保育所データと位置参照情報データの結合と結果の確認。
+
+```{r, results = 'asis'}
+df_spr %<>% dplyr::filter(住所 == "北5条西14丁目1番地29") %>% 
+  dplyr::mutate(住所 = gsub("[[:xdigit:]]{2}$", "", 住所)) %>% 
+  inner_join(df_geo)
+
+knitr::kable(df_spr, format = "markdown")
+```
+
+一筋縄ではいかないが、なんとかできた。<span class = "hlt_bf">以下、つらみ（後で書く）。</span>
+
+### SappoRo.R
+
+http://kokucheese.com/event/index/340657/
+
+11月14日、みんなで札幌に行こう（行けない）。
+
+### 利用データ・ライセンス
+
+* 道内認可保育所一覧表 (H27.4.1現在) 北海道 ([北海道オープンデータ](http://www.pref.hokkaido.lg.jp/ss/jsk/opendata.htm)): クリエイティブ・コモンズ・ライセンス 表示2.1 日本
+* 札幌市中央区 位置参照情報　国土交通省 ([位置参照情報ダウンロードサービス](http://nlftp.mlit.go.jp/isj/index.html))
+
+```{r, echo=FALSE, eval=FALSE}
+# df_spr %<>% dplyr::mutate(., 住所 = gsub("札幌市(中央区|北区|東区|清田区|南区|白石区|西区|手稲区)", "", 住所))
+```

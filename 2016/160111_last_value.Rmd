@@ -1,0 +1,72 @@
+---
+title: ".Last.valueの話: 保存して欲しければ結果をまずは見せな" 
+author: "Shinya Uryu"
+date: "2016年1月11日"
+output: 
+  md_document:
+    variant: markdown_github
+---
+
+```{r [SETTING], include = FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = FALSE, 
+                      message = FALSE, error = FALSE, warning = FALSE,
+                      fig.align = "center")
+```
+
+```{r, eval = FALSE, include = FALSE}
+library(remoji)
+```
+
+Rでパイプ処理をしていると、「あ、今の結果をオブジェクトに保存しとけば良かった...。もう一回実行するのメンドクセ」、ということがしばしばある。
+
+そんな時は直前の処理をやり直す必要はなくて、`.Last.value`を使って対処することもできる。？？？。以下の例を見てもらうのがわかりやすいと思う。
+
+例１
+
+```{r, eval = FALSE}
+library(dplyr)
+# 種も仕掛けもございません
+is.object(x)
+#   Error: object 'x' not found
+
+# なんらかの処理をする
+iris %>% 
+  dplyr::select(Sepal.Length, Species) %>% 
+  dplyr::filter(Species == "setosa") %>%
+  dplyr::sample_n(3)
+
+# 保存してないことに気がつく
+.Last.value -> x
+# 救済された気持ちになる
+x
+```
+
+例２
+
+```{r, eval = FALSE, echo = TRUE}
+library(ggplot2)
+# ただプロットする
+mtcars %>% ggplot(aes(mpg, disp)) + 
+  geom_point()
+
+# 今の図にレイヤーを追加したくなった
+.Last.value + ggtitle("なんちゃら")
+# 結果は省略。タイトルを追加した図が描画される
+```
+
+種明しではないし、多分Rの基礎なのだろうけど（と思ったけど手持ちの「R言語上級ハンドブック」にも「Rプログラミングマニュアル 第２版」にも書かれていなかった）、`.Last.value`は最後に評価された表現式の値を一時的に保存している。なので例のように、コードを実行した直前であればオブジェクトとして保存することができるようになっている。
+
+```{r, eval = TRUE}
+df_iris <- iris
+identical(df_iris, .Last.value)
+# 次の評価式が与えられると.Last.valueが更新される
+dim(df_iris)
+identical(df_iris, .Last.value)
+```
+
+
+**オブジェクトとして保存して欲しい？まずは結果を見てからだ**、という気構えを持った方には便利かもしれない。
+
+Enjoy!
+
+

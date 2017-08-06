@@ -1,0 +1,123 @@
+---
+title: "{purrr}でSlack WEB APIを触る"
+author: "Shinya Uryu"
+date: "2015年12月6日"
+output: 
+  md_document:
+    variant: markdown_github
+---
+
+```{r [SETTING], include = FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = TRUE, 
+                      message = FALSE, error = FALSE, warning = FALSE,
+                      fig.align = "center")
+```
+
+```{r, eval = TRUE, include = FALSE}
+library(remoji)
+```
+
+API怖いので **`{purrr}`**を使って頑張ろう、という所存です。先日、うさぎさんこと @sinhrks さんがJapan.R 2015で講演されたので、[その資料](https://speakerdeck.com/sinhrks/purrr-niyorufei-teburudetafalsechu-li)を**超参考**にしました。
+
+<script async class="speakerdeck-embed" data-id="5670d28e75934d71aae19708cc539973" data-ratio="1.33333333333333" src="//speakerdeck.com/assets/embed.js"></script>
+
+SlackのAPIを扱う機能をもった [**`{slackr}`**](https://github.com/hrbrmstr/slackr) があり、こちらを愛用していますが、生API (?)で頑張るぞい、という(ry
+
+最終的にこれ
+
+http://qiita.com/sadapon2008/items/69d47a5e282eb56fe2d8
+
+をRでできるようにしたいです。過去にログファイルをダウンロードしてきて実行する方法について書きましたが、それのAPI利用版（お試し）です。
+
+http://uribo.hatenablog.com/entry/2015/09/01/183329
+
+
+参照するAPIはreactions.getメソッドです。投稿に対する絵文字を用いた応答（誰が、どのような反応をしたかといった情報）が返ってきます。必要なパラメータとしてtoken, channel, timestampなどがあります。個別の投稿に対するreactionを得るためにtimestampを指定する必要がありますが、このtimestampを得るには別のchannels.historyメソッドを叩くのが良いっぽいのでそうしました。
+
+```{r}
+library(httr)
+library(purrr)
+```
+
+```{r, eval=TRUE, echo=FALSE}
+token <- "xoxp-6825341923-6825341939-8413435542-ca0954"
+channel <- "C06Q97GE8"
+```
+
+token, channelの部分は適宜値を与えてください。
+
+```{r, eval=TRUE, echo=TRUE}
+url <- sprintf("https://slack.com/api/channels.history?token=%s&channel=%s&pretty=1", 
+               token, channel)
+GET(url = url) -> res
+```
+
+```{r}
+res$status_code
+```
+
+ステータスコードが`r res$status_code` <!-- 200 -->なので正常に値が得られています。ここから必要な情報timestampをとってきます。
+
+```{r}
+content(res) %$% messages %>% map(~ .$ts) %>% {
+  res_ts <<- .
+  .
+}
+```
+
+```{r}
+as.POSIXlt("16:07:21", format = "%H:%M:%S") %>% as.numeric()
+```
+
+表記されている時刻と微妙にずれているのが気になります...。がそれはさておき、必要なtimestampの値を得られたので、これを追加してreactions.getメソッドを参照します。
+
+```{r}
+url <- sprintf("https://slack.com/api/reactions.get?token=%s&channel=%s&timestamp=%s&pretty=1", 
+               token, channel, res_ts[[2]])
+GET(url = url) -> res
+res %>% content() %$% message %$% reactions[[1]] %$% name
+
+res %<>% content() %$% message %$% reactions %>% 
+  map(~ .[c("name", "count")]) %>% 
+  dplyr::bind_rows()
+```
+
+```{r, eval = TRUE, results = 'asis'}
+res %>% dplyr::mutate(name = paste(remoji::emoji(name), name, " ")) %>% 
+  kable(format = "markdown")
+```
+
+深い階層のリスト要素へのアクセスはこのようにするのが良いのかわかりませんが（多分あまり良くなさそう）、とりあえず勉強になりました。
+
+```{r, eval=FALSE, echo=FALSE}
+GET(url = "https://slack.com/api/channels.history?token=xoxp-6825341923-6825341939-8413435542-ca0954&channel=C06Q97GE8&pretty=1") -> res
+content(res) -> res_content
+
+res %>% str(max.levels = 4)
+
+content(res) %$% messages[[1]] %$% reactions[[1]] %$% name
+
+res_content$messages %>% str()
+
+res_content$messages %>% map("reactions") %>% 
+  flatten() %>% {
+    map(., "name") %>% print()
+    map(., "count")
+  }
+
+res_content$messages %>% map("reactions") %>% 
+  flatten() %>% 
+  map(~ .[c('name', 'count')]) %>% 
+  dplyr::bind_rows()
+  
+
+keep(res_content$messages, ~ .$user == "U06Q9A1TM") %>% 
+  map("reactions") %>% 
+  flatmap(~ .$count < 2)
+  at_depth(2, print) %>% 
+  map_chr("name") %>% 
+  keep(.$name, ~ .$name == "ramen")
+  
+  
+#  keep(., ~ .$reactions == "ramen")
+```

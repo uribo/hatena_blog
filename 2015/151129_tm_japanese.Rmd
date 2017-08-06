@@ -1,0 +1,156 @@
+---
+title: "{tm}パッケージで日本語のPDFからテキストを抽出する"
+author: "Shinya Uryu"
+date: "2015年11月29日"
+output: 
+  md_document:
+    variant: markdown_github
+---
+
+```{r, include = FALSE}
+library(remoji)
+```
+
+男なら誰しも一度は「俺に落とせない女はいない」、的なことを言ってみたいと思うわけですが、どうやら<span class="hlt_bf">そんなセリフを言う機会がありそうもない</span>ので、**「俺に落とせないデータはない」**くらいにスケールダウンかつハッカー感を出していければと思います。
+
+というわけでタイトルにある通り、日本語のPDFからテキストを抽出する方法です。テキストマイニングに特化した**`{tm}`**パッケージを使います。
+
+まず、通常の**`{tm}`**の挙動を見てから、日本語PDFへの応用例を示します。
+
+```{r, eval=TRUE, message=FALSE}
+library(tm)
+```
+
+## tm::readPDF() の基本動作
+
+PDFからR上にテキストを落とす`readPDF()`の基本的な使い方です。
+
+対象にするのは、欲しいなー誰か買ってくれないかなーと狙っている ["Zero Inflated Models and Generalized Linear Mixed Models with R"](http://www.highstat.com/book4.htm)の目次PDFにします。動作を確認したい人は適宜ダウンロードしてきてください（デスクトップ上にContents.pdfというファイル名でおきました）。
+
+`readPDF()`を動作させるためには次のシステムが必要です。パスが表示されるかを確認しましょう。
+
+```{r, eval=TRUE}
+Sys.which(c("pdfinfo", "pdftotext"))
+```
+
+```{r, eval=TRUE}
+# tm_res() という関数を用意する
+tm_res <- readPDF(control = list(text = "-layout"))
+# tm_res()は次の引数名をもつ
+tm_res %>% args() %>% as.list() %>% names()
+```
+
+*engine*に指定する引数は初期値のxpdfで良いと思われるので、特に指定する必要はありません。その他のシステムを利用したい時には変更してください。xpdfの他に、Rpoppler、ghostscript、Rcampdfおよびカスタマイズしたシステムが利用できます。
+
+```{r, eval=TRUE, echo=FALSE}
+tm_res <- readPDF(control = list(text = "-layout"))
+tm_res %<>% .(elem = list(uri = "/Users/uri/Desktop/Contents.pdf"), language = "en")
+```
+
+```{r, eval=FALSE, echo=TRUE}
+# elem引数にリスト形式でファイルまでのパス、language引数を指定し、関数を実行する
+tm_res %<>% .(elem = list(uri = "/Users/user/Desktop/Contents.pdf"), 
+              language = "en")
+```
+
+```{r, eval=TRUE}
+tm_res %>% class()
+```
+
+`readPDF()`の返り値はこのようなクラスオブジェクトになっています。また、
+
+```{r, eval=TRUE}
+tm_res %>% str(max.level = 2)
+```
+
+のように、テキストそのものはtm_res$contentに格納されています。tm_res$contentは文字列クラスオブジェクトです。すべてを表示させると長いので、先頭のいくつかのみを表示させます。
+
+```{r, eval=TRUE}
+tm_res$content[1:10]
+```
+
+というようにPDFから文字をR上に抽出できました。あとの処理は通常のRでのテキストマイニングの手法を適用すればおkです。
+
+## 日本語PDFでも文字抽出
+
+さて、同様の手法を日本語が含まれるPDFに対して実行すると、アルファベットや数字は抽出することができますが、肝心の日本語が抽出できません。そこで、
+
+http://akkunchoi.github.io/xpdf-japanese.html
+
+このページにあるように、必要なツールをインストールしたのち、xpdfの内容に修正を加えておきます。これで準備は整いました。日本語PDFの例として、
+
+[総務省｜政策統括官（統計基準担当）｜統計に用いる標準地域コード](http://www.soumu.go.jp/toukei_toukatsu/index/seido/9-5.htm)
+
+にある 「41 佐賀県～47 沖縄県（PDF：145KB）」を対象にします。ダウンロードしたファイルは000323624.pdfという名称です。
+
+```{r, eval=TRUE}
+tm_res <- readPDF(control = list(text = "-layout"))
+```
+
+```{r, eval=TRUE, echo=FALSE}
+tm_res %<>% .(elem = list(uri = "/Users/uri/Desktop/000323624.pdf"), language = "ja")
+```
+
+```{r, eval=FALSE, echo=TRUE}
+tm_res %<>% .(elem = list(uri = "/Users/user/Desktop/000323624.pdf"), language = "ja")
+```
+
+結果です。例によって一部を取り出してみます。
+
+```{r, eval=TRUE}
+tm_res$content[1:10]
+```
+
+というわけで日本語のPDFでもテキストを落とすことができて、**小さな小さな自尊心が保たれました。**
+
+### おまけ
+
+せっかくなので市区郡町村のデータフレームを作成してみました。
+
+```{r, eval=TRUE, message=FALSE, warning=FALSE}
+library(tidyr)
+library(dplyr)
+```
+
+```{r, eval=TRUE}
+res_city <- tm_res$content %>% 
+  grep("\\d{3}", ., value = TRUE) %>% 
+  grep("削|除", ., invert = TRUE, value = TRUE) %>% 
+  grep("[市区郡町村]", ., value = TRUE) %>% 
+  gsub(".+[0-9] ", "", .)
+
+res_city %<>% data_frame(city = .) %>% 
+  tidyr::extract(col  = city,
+                 into = c("name", "rubi"),
+                 regex = "(.+[市区郡町村]+)+([[:print:]]+)",
+                 remove = TRUE) %>%
+  dplyr::mutate(name = gsub("[[:space:]]", "", name)) %>% 
+  dplyr::filter(!is.na(name))
+```
+
+```{r, eval=FALSE, echo=FALSE}
+res_city %<>% head(6)
+
+library(formattable)
+
+res_city %>% formattable(
+  list(
+    name = formatter("span", 
+                     style = x ~ style(color = ifelse(grepl("市$", x), 
+                                         "forestgreen", "tomato"),
+                                       font.weight = "bold")),
+    rubi = formatter("span", 
+                     style = x ~ style(color = ifelse(grepl("し$", x), 
+                                         "yellowgreen", "orangered")))
+))
+```
+
+
+
+
+## 参考
+
+* [Xpdf - Linux Wiki](http://oku.edu.mie-u.ac.jp/~okumura/linux/?Xpdf)
+* [xpdfを使ってPDFから日本語抽出 | akkunchoi@github](http://akkunchoi.github.io/xpdf-japanese.html)
+
+

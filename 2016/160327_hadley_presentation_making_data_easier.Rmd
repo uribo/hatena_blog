@@ -1,0 +1,193 @@
+---
+title: "Rを使ってモデル構築の最善策を求めて" 
+author: "Shinya Uryu"
+date: "2016年3月27日"
+output: 
+  md_document:
+    variant: markdown_github
+---
+
+```{r [SETTING], include = FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = TRUE, 
+                      message = FALSE, error = FALSE, warning = FALSE,
+                      fig.align = "center",
+                      tidy = FALSE,
+                      tidy.opts = list(blank = FALSE, width.cutoff = 40))
+```
+
+```{r, eval = TRUE, include = FALSE}
+library(magrittr)
+library(remoji)
+```
+
+RStudioのチーフサイエンティスト、Hadley Wickham（ハドリー）が２月に行った講演のビデオがYouTubeに上がっていたので観た。
+
+"Making Data Analysis Easier"というタイトルでの(スライドでは"Managing many models"になっているけど)発表の中で、ハドリー自身が考えている、データサイエンスに必要な可視化やモデリングを効率的に行うための手法について、彼の開発してきたパッケージを中心に説明している。
+
+https://www.youtube.com/watch?v=hRNUgwAFZtQ
+
+分かりやすく、具体例を交えた内容なので、是非YouTubeの動画を観てもらうのが良いと思うが、**自分の頭を整理するためにもここでまとめておく**。なお、発表スライドはクリエイティブ・コモンズライセンス3.0のもと、表示・非営利のラインセンスで再利用可能となっている。
+
+> *Hadley Wickham* (Chief Scientist, RStudio) 2016. Managing many models. http://wombat2016.org/abstracts/hadley.html
+
+### `r emoji("sparkles")` データサイエンスに置いて重要な７つの事柄
+
+ハドリーは自身の発表でしばしば次のような図を提示する。
+
+（**`{DiagrammeR}`**パッケージを使って作図した。ソースコードは[gistに](https://gist.github.com/uribo/a270d0b3ebdebadb6090#file-hadley_ds_cycle-r)）
+
+これはハドリーがデータサイエンスを行っていく上で重要だと考えているプロセスとその流れを表したもので、ハドリーはこのプロセスに沿ったパッケージを開発してきた((Data manipulation with dplyr, Getting your data into R https://vimeo.com/125174198))（そういう風に捉えるとますますハドリーが尊い存在に思えてくる）。上の図で四角い枠に囲われたものがここの過程を示しており（探索的データ解析の中には整形、可視化、モデリングが含まれる）、**`{package}`**のように表されているのがそのプロセスを進めていくのに便利なRのパッケージ名となっている。
+
+すなわち**データを取得した後、解析のために利用しやすいデータ形式へと整頓し、データの変形や可視化、モデル化を繰り返して、その情報を伝達したり自動的な処理のプログラムを組む**ことをハドリーは重視している。そして今回の発表では、この中の「探索的データ解析」に焦点を当てている。これはハドリーのデータサイエンスプロセスでも中心となるものであり、その後の議論を左右する重要な部分である。
+
+ちなみに、以前にもハドリーのこのプロセスに沿ったデータ整形に関する記事を書いたのでそちらも参考に。
+
+http://uribo.hatenablog.com/entry/2015/12/01/055000
+
+### `r emoji("beginner")` データの階層構造を理解する
+
+#### 現実的な問題: gapminderデータを例に
+
+我々が扱うデータはときに２つ以上の、ときには大量の変数をもっている。例えば[**`{gapminder}`**パッケージ](https://github.com/jennybc/gapminder)には**gapminder**というデータセットがあり、６つの変数をもっている。うち２つの変数は対象の国*country*とその地域（大陸）名*continent*で、これらはカテゴリー変数である。また、年*year*列はデータが得られた西暦を表している。
+
+```{r, eval = TRUE}
+library(dplyr)
+data("gapminder", package = "gapminder")
+# データセットの変数の型を把握する
+gapminder %>% glimpse()
+```
+
+ここで雑に出生時平均余命*lifeExp*の変化を年代*year*ごとにプロットしてみると次の図が得られる。
+
+```{r, echo = TRUE, eval = FALSE}
+library(ggplot2)
+gapminder %>% 
+  ggplot(aes(year, lifeExp, group = country)) + 
+  geom_line()
+```
+
+20世紀の中盤から21世紀向かって、出生時平均余命が上がっている感じがある。感じがある、を雑に確かめるためには線形回帰を使えば良い。一方で、この図の中には全体的な傾向（右肩上がり）と異なり、時々ガクッと下がったり、それほど上昇していない線もあるようだ。つまり、調査が行われた国ごとに傾向が違うのではないだろうか？それを確認する方法の一つとして、国ごとに線形回帰を行ってみる。
+
+...がちょっと待て。**gapminder**データセットにはいくつの国が含まれている？
+
+```{r}
+gapminder$country %>% nlevels()
+```
+
+これらを一つ一つしらみつぶしに調べていくのは大変面倒だ。
+
+#### ある基準でデータを内包する
+
+やりたいことを整理してみよう。**gapminder**データセットがもつ変数、出生時平均余命*lifeExp*は年*year*に従って増加している、という仮説を検証するために国*country*ごとにその傾向を線形回帰モデルを使って調べてみる、ということだ。
+
+ここで線形回帰を行うために必要な変数、*lifeExp*と*year*は変動するが、国と大陸名は固定されていることに注目する。つまりこの**カテゴリー変数を用いてデータを入れ子構造に内包することが可能**であるということだ。階層構造をもつデータフレームを生成するには**`{tidyr}`**パッケージの`nest()`関数を使う。また**`{dplyr}`**パッケージの`group_by()`で基準となる変数を指定しておくことが大事である。
+
+```{r}
+library(tidyr)
+nest_by_country <- gapminder %>% 
+  group_by(continent, country) %>% 
+  nest()
+
+# 日本のデータは次の位置に格納されている
+gapminder$country %>% factor() %>% levels() %>% grep("Japan", .)
+nest_by_country$data[[67]]
+
+# 元のgapminderデータセットから日本を抽出し、不要な変数を取り除いたデータと一致する
+all.equal(gapminder %>% dplyr::filter(country == "Japan") %>% dplyr::select(-continent, -country), 
+          nest_by_country$data[[67]])
+```
+
+この日本のデータにのみ絞って、線形回帰を行ってみよう。
+
+```{r}
+nest_by_country$data[[67]] %>% dim()
+
+lm.res <- nest_by_country$data[[67]] %>% lm(lifeExp ~ year, data = .)
+lm.res %>% summary() %>% {
+  .$r.squared %>% print() # 決定係数（モデルの当てはまりの良さ）
+  .$coefficients %>% print()  # 係数（グラフの傾きと切片）
+  .$residuals # 残差（モデルによる予測値と観測値のズレを示す）
+}
+```
+
+Rではこのようにすれば良い。これだけで十分な情報が得られて、Rは素晴らしいな、と思う反面、やはりすべての国に対してこれをやるのは辛い。
+
+#### {broom}パッケージでRによるモデルの結果をよしなに
+
+先の例では、特に線形回帰を実施する関数`lm()`の結果を要約`summary()`したものについて、その要素にアクセスすることでモデルの結果を確認した。Rのモデリング用の関数の多くはこのように、解析の結果を要素として（全体ではリストとして）もつことがほとんどなので、要素名を指定すると必要な情報を得ることができるがいささか面倒だ。そこで**`{broom}`**パッケージを利用する。
+
+**`{broom}`**パッケージはRの統計解析用の関数の出力を整形し、利用者が再利用しやすい形（データフレームクラスオブジェクト）で出力する。
+
+```{r, eval = TRUE}
+library(broom)
+nest_by_country$data[[67]] %>% lm(lifeExp ~ year, data = .) %>% {
+  glance(.) %>% print()
+  tidy(.) %>% print()
+  augment(.) %>% .$.resid
+}
+```
+
+出力する値自体は変わりがないが、**`{broom}`**を使った統計解析の結果の出力はデータフレームクラスのオブジェクトとなっている点が大きく異なっている。このことが、次の効率的なモデリングを行うのに大切になる。
+
+#### {dplyr}と{purrr}および{broom}による効率的なモデリング
+
+国別の傾向を知りたいが、問題はデータを分割する基準となる国の数が多いことだ。こうした問題はデータ分析を行う際には頻繁に生じる。性別や都道府県ごとに処理を行う、というのは誰もがやったことがあるのではないだろうか。
+
+ハドリーは、こうした作業をよりプログラミング的に行うべく、`do()`という関数を用意した。`do()`関数を利用すると同じく**`{dplyr}`**パッケージの関数`group_dy()`で基準を指定した後、目的の処理を記述するだけで、基準を適用した処理の結果が特殊な階層に保存される。
+
+http://qiita.com/uri/items/27f1497778b4385acb25
+
+```{r}
+(do_by_country <- gapminder %>% 
+  group_by(country) %>% 
+  do(data = lm(lifeExp ~ year, data = .) %>% tidy()))
+```
+
+`do()`関数内で記述した処理した内容は次のようにして取り出せる。`group_by()`と`do()`を処理の間に挟むだけで対象の国ごとの線形回帰の結果が得ることができた。素晴らしい！
+
+```{r}
+do_by_country$data[[1]]
+do_by_country$data %>% length()
+```
+
+すべての国について見ていくのはまた面倒なので`tidyr::unnest()`を使う。`unnest()`関数は階層構造のであるデータ形式を展開するものであり、`nest()`と対をなす関数である。`do()`の中で実行した処理を再びデータフレームとしてまとめるのに便利である。
+
+```{r}
+do_by_country %>% unnest()
+```
+
+これまでの一連の処理を**`{purrr}`**パッケージを使ってよりプログラミング的に記述することができる。
+
+```{r}
+library(purrr)
+map_by_country <- gapminder %>% 
+  split(.$country) %>% 
+  map(., ~ lm(lifeExp ~ year, data = .) %>% tidy())
+
+all.equal(do_by_country$data[[1]], map_by_country[[1]])
+```
+
+どちらを使っても良いが、ハドリーは**`{purrr}`**を推している感じがある（講演では`do()`は出てこず`map()`の例が出ている）。**`{purrr}`**を使った応用例がYouTubeの動画で見れるのできになる人はチェックを。
+
+### `r emoji("star")` まとめ
+
+この記事の内容であまり触れられていない部分もあるが、ハドリーは以下の項目をまとめとしてあげている。
+
+1. 関連するオブジェクトをリスト - 列の階層にまとめることで、モデリングの結果を取得、整理しやすくなる
+2. （**`{purrr}`**を使った）関数型プログラミングを体系的に学ぶことで、オブジェクトではなく関数の働きに焦点を当てた処理ができるようになる
+3. **`{broom}`**パッケージを使うと、統計解析モデルの結果が整形されたデータフレームとして得られ、可視化や集計に便利である
+
+この講演の中でも、彼の著書の中でも、ハドリーはR利用者に自作関数を作ることを勧めている気がする（確かに効率を上げるには関数にしたほうが良いが、関数への理解が必要だ）。それはハドリーがRの標準グラフィックスに対抗するようなggplot2パッケージを開発したり、文字列や日付操作の改善に努め、Rにおける処理のコアとなるデータの読み込みや処理・操作に重点を置いたパッケージを作っていく過程で、Rの標準関数のイマイチな挙動にうんざりしたから、という気がしなくもない。そしていよいよ関数型言語としての利用を推進している、ように感じる。
+
+ハドリーはまた別の発表をするらしい... http://www.meetup.com/ja-JP/R-Users/events/229156095/?eventId=229156095
+
+こちらも資料が公開されたら必見（内容が近い感じがするけど）。
+
+### `r emoji("computer")` 実行環境
+
+```{r, eval = TRUE, echo = FALSE}
+devtools::session_info() %$% packages %>% 
+  dplyr::filter(`*`  == "*") %>% 
+  dplyr::select(package, version, source) %>% 
+  knitr::kable(format = "markdown")
+```

@@ -1,0 +1,72 @@
+---
+title: "`r remoji::emoji('candy')` インタラクティブな認証が必要な関数の処理を魔改造してR Markdownでも実行可能にする" 
+author: "Shinya Uryu"
+date: "2016年2月13日"
+output: 
+  md_document:
+    variant: markdown_github
+---
+
+```{r [SETTING], include = FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = FALSE, 
+                      message = FALSE, error = FALSE, warning = FALSE,
+                      fig.align = "center",
+                      tidy = TRUE,
+                      tidy.opts = list(blank = FALSE, width.cutoff = 40))
+```
+
+```{r, eval = TRUE, include = FALSE}
+library(magrittr)
+library(remoji)
+```
+
+ウェブAPIのラッパーパッケージを利用する際に**`{httr}`**パッケージは認証に必要な関数を備えており、これらのラッパーパッケージにおいては主な手法として利用されている。その理由として、**`{httr}`**パッケージが認証処理を実行する関数を備えていることがあげられる。ウェブAPIの大部分はAPIキーやアクセストークンを与えた認証を必要とするが、`httr::oauth2.0_token()`などを使うことでR上でもこれらの処理を実行できるという体系が構築可能である。**認証はブラウザを通して行われることが多く、**ユーザーが許可を与えることにより、ラッパーパッケージが提供する諸々の関数を利用可能になる（背景の処理で.httr-oauthという隠しファイルを利用したりする）。
+
+さて、通常のウェブAPIをラップした関数をコンソール上で実行するにはこの方法で良いが、これらの関数を**cronなどのスケジュール機能を使って自動的に走らせる時や、拡張子`.Rmd`でレポートを生成する際にはこの方法はうまくいかない**。結論からいうと、<span class = "hlt_bf">これらの処理の中で**`{httr}`**ベースの関数を実行する際にはインタラクティブモードを有効にしている必要がある</span>。
+
+例えば、 **`{twitteR}`**パッケージを使って、Rmdファイルからレポートを作成したい、というような時には
+
+```{r, eval = FALSE, echo = TRUE}
+# 認証のための関数
+setup_twitter_oauth(consumer_key    = "<your_consumer_key>", 
+                    consumer_secret = "<your_consumer_secret_key>")
+# 「rstudio」が含まれるつぶやきを取得する
+searchTwitter("rstudio", n = 10)
+```
+
+のようなコードを利用するが、これをそのまま`.Rmd`ファイルにコピーしてknitを実行すると
+
+> Error: oauth_listener() needs an interactive environment.
+
+というエラーが返ってきて、コードは実行されずにレポートも生成されない場合がある（**`{RGA}`**パッケージのように認証情報を別の形で保存していれば別）。`oauth_listener()`は**`{httr}`**の関数で、引数の*is_interactive*に*TRUE*が与えられないと今回のように処理を中止する。*is_interactive*引数の判定には*interactive()*関数が利用されており、ここでインタラクティブモードの確認が行われる。
+
+```{r}
+# GUI RやRStudioのコンソール上で実行するとTRUEが返ってくる
+interactive()
+```
+
+通常のGUI RやRStudioのファイルから実行すると*TRUE*になるのだけど、RStudioのKnitボタンを押して実行されるrender環境では*FALSE*である。というわけでこれを回避するために**強制的にインタラクティブモード**としてレポートを生成してみたい。
+
+対象の`.Rmd`ファイルに次の処理を追加しておくだけ。
+
+```{r, eval = FALSE, echo = TRUE}
+unlockBinding("interactive", as.environment("package:base"))
+assign("interactive", function() TRUE, envir = as.environment("package:base"))
+```
+
+これでおk。
+
+
+
+
+注意として、認証の部分はブラウザを介しての処理なので、一度インタラクティブに実行しておく必要がある。
+
+### 余談
+
+上の例はあくまでもコンピュータに自動的に行わせるもので必要な処理なので、ユーザーの手によって実行される（**インタラクティブモードで生成される**）のであれば
+
+```{r, eval = FALSE, echo = TRUE}
+rmarkdown::render("report.Rmd")
+```
+
+で良い。

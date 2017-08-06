@@ -1,0 +1,88 @@
+---
+title: "関数の実行結果を知らせる関数（パッケージ）を作っています" 
+author: "Shinya Uryu"
+date: "2017年1月14日"
+output: 
+  md_document:
+    variant: markdown_github
+---
+
+```{r [SETTING], include = FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = FALSE, 
+                      message = FALSE, error = FALSE, warning = FALSE,
+                      fig.align = "center",
+                      tidy = FALSE,
+                      tidy.opts = list(blank = FALSE, width.cutoff = 40))
+```
+
+```{r, eval = TRUE, include = FALSE}
+library(magrittr)
+library(remoji)
+```
+
+`source()`でガーッとコードを実行させる時や`foreach::foreach()`などでループ処理をする時、モデリングのような処理に時間のかかる関数を実行すると、終わったかな、まだやっているかなとチラチラとコンソールを確認するのが結構面倒臭い。せっかちなので頻繁に見てしまう。そんな私のための、関数の実行が終了したら通知する関数を書きました。パッケージとしてGitHubに公開しているので、後述の方法でインストールすれば利用可能です。
+
+まずこちらをご覧ください。
+
+このgifは下記のコードを実行したものです。
+
+```{r}
+library(roracle)
+notice_status(head(iris))
+
+head(iris) %>% notice_status(msg = "実行完了")
+
+notice_status(warning("警告の際には出力が変更されます"))
+notice_status(print(エラーとなるコードを実行するとそれを通知します))
+
+
+notice_overtime(1 + 1)
+notice_overtime(for(i in 1:1e7) sqrt(1:10)) 
+```
+
+## インストール
+
+**`{roracle}`**というパッケージを利用することで上のような通知が可能になります。下記のコードを実行すればGitHubからインストールされます（さっきGitHubにあげたのでGepuro Task Viewsに登録されていないはず）。
+
+```{r, eval = FALSE, echo = TRUE}
+install.packages("devtools")
+install_github("uribo/roracle")
+```
+
+通知のためにnotiというツールをインストールしておく必要があります。これが**`{roracle}`**の味噌となります（つまり私自身は大したことをしていない！！）
+
+https://github.com/variadico/noti
+
+notiはOSを問わずに利用できます。
+
+
+
+## 使い方
+
+**`{roracle}`**の関数を紹介します。といっても、現在は2つの関数しかありません。コードの実行結果を通知する`notice_status()`と処理時間の長いコードの終了を知らせる`notice_overtime()`です。
+
+それぞれ詳しく見ていきます。
+
+`notice_status()`では、第一引数に与えたコードが実行されると通知をします。`%>%`によるパイプ処理をしても良いです。*msg*という引数を持っていて、これを変更すると通知のメッセージを変えられます。またそのうち音声読み上げさせたいと思っています。
+
+また先の例のように、コード実行結果にWarningやMessage、Errorがあった場合にはその旨を通知します。
+
+```{r}
+notice_status(head(iris))
+```
+
+`notice_overtime()`は実行時間が規定以上になったものに対して、実行完了時に通知を行います。s処理時間の長い関数の実行に追加しておくと、終了したことを確認できて捗ります。
+
+これで一つの画面を見続けている必要がなくなりました。
+
+Enjoy!
+
+この関数を書いた背景として以前の記事があります。
+
+http://uribo.hatenablog.com/entry/2015/09/22/120815
+
+http://uribo.hatenablog.com/entry/2015/09/23/061451
+
+ただこれだとMacでしか動かなかったり、パッケージ化されていないので使いにくい、ということがありました。個人的には満足できるものができたと思います。CRANにあげる気はありません。関数を使わず、もっと自然に通知させたいなと思っていますが、それはまた今度。
+
+また、同様のことをしようとしている人が[います](https://github.com/gaborcsardi/notifier)。metacranおじさん（Mango Solutionsの人）もなかなかの変態です。いつもありがとう！！

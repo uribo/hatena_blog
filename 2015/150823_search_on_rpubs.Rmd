@@ -1,0 +1,40 @@
+---
+title: "気になるパッケージや関数があったらRPubsを覗いてみる"
+author: "Shinya Uryu"
+date: "2015年8月23日"
+output: 
+  md_document:
+    variant: markdown_github
+---
+
+最近、Rのいろいろな関数やパッケージについて調べることがあって、毎日`?hoge`している。ヘルプを読んで納得がいくこともあれば説明不足を感じたりこともある。いずれにせよ、ヘルプで書かれていること以外の内容を調べるにはネットを利用するのが手っ取り早い。そのとき、できるだけ無駄な情報を落として必要な情報だけを仕入れたい。R言語に関するサーチエンジンである[seekR](http://seekr.jp)を使うのも良いが**MacのランチャーアプリであるAlfredを使ってRPubsのサイト内検索をできるようにした**、という話。今更感がある。
+
+### RPubsとは
+
+http://rpubs.com
+
+Rのソースコードを実行結果やテキストとともにウェブ上で公開できるページ。世界中のRのユーザーが目を通す憩いの場（パブ `r remoji::emoji("beers")`）なので、ちょっとしたアピールの場にもなる。R界隈の著名人（ユーザーごとにページが作成される）もパッケージのデモなどのために利用しているのでcoolである。お手軽なので特にブログやウェブサイトをもっていない人は使ってみることをおすすめする。
+
+#### 問題点
+
+サイト内検索ができない。**サイト内検索ができない**（大事なことなので二回言いました）
+
+有益情報であふれているのに、検索できないのはツライ（ほかにも、デザインがあれだったりSNSみたいな機能はないのが残念）。
+
+### AlfredのWeb SearchでRPubs内を検索できるように
+
+[Alfred](https://www.alfredapp.com) という便利なアプリを使って、RPubsのサイト内検索をできるようにしてみた。こんな感じにするだけで良い。アイコンは適当に自作した。
+
+[f:id:u_ribo:20150823135215p:plain]
+
+良い。
+
+そしてもう一つ。@hoxo_mさん作成のTwitter botのつぶやきも検索できるようにした。クエリーを入れるとつぎのようなページが開く https://twitter.com/search?q=data.table%20from%3ARPubsHotEntry 。RPubsHotEntryアカウントのほうだと、有益である可能性も高まる。
+
+↓参考
+
+<iframe src="//www.slideshare.net/slideshow/embed_code/key/1YxrG9GNW3e81h" width="425" height="355" frameborder="0" marginwidth="0" marginheight="0" scrolling="no" style="border:1px solid #CCC; border-width:1px; margin-bottom:5px; max-width: 100%;" allowfullscreen> </iframe> <div style="margin-bottom:5px"> <strong> <a href="//www.slideshare.net/hoxo_m/rpubs-bot" title="RPubs とその Bot たち" target="_blank">RPubs とその Bot たち</a> </strong> from <strong><a href="//www.slideshare.net/hoxo_m" target="_blank">hoxo_m</a></strong> </div>
+
+[RPubs の新着記事をつぶやく Twitter Bot 作った - ほくそ笑む](http://d.hatena.ne.jp/hoxo_m/20120810/p1)
+
+みなさんもっと記事を書いてください。

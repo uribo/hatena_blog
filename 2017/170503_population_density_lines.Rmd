@@ -1,0 +1,146 @@
+---
+title: "日本の人口密度を可視化する" 
+author: "Shinya Uryu"
+date: "2017年5月3日"
+output: 
+  md_document:
+    variant: markdown_github
+---
+
+```{r [SETTING], include = FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = TRUE, 
+                      message = FALSE, error = FALSE, warning = FALSE,
+                      fig.align = "center",
+                      tidy = TRUE,
+                      tidy.opts = list(blank = FALSE, width.cutoff = 40))
+```
+
+```{r, eval = TRUE, include = FALSE}
+library(magrittr)
+library(remoji)
+library(pumpkin.seeds)
+```
+
+少し前(4月下旬ごろ?)に、redditで[人口密度の高さを表現した地図](https://www.reddit.com/r/MapPorn/comments/66q16g/population_lines_by_dr_james_cheshire_showing/)が話題になりました。
+
+https://www.reddit.com/r/MapPorn/comments/66q16g/population_lines_by_dr_james_cheshire_showing/
+
+この地図は、James Cheshire博士 ([\@spatialanalysis](https://twitter.com/spatialanalysis))が2014年に投稿した ["Population Lines Print"](http://spatial.ly/2014/08/population-lines/) が元となっていて、再現性のあるRコード、[ヨーロッパに焦点を当てた地図](https://gist.github.com/halhen/659780120accd82e043986c8b57deae0)が描かれた（Henrik Lindberg [\@hnrklndbrg](https://twitter.com/hnrklndbrg) ）ことで話題が広がっています（という印象。今週の[R Weekly](https://rweekly.org/2017-18.html)でもいくつかの記事が掲載されました。
+
+日本の人口密度の情報を世界地図から伺うことはできますが、スケールダウンしたものがあった方がわかりやすいです。...というわけで作成してみました。
+
+政府統計の総合窓口 e-Statでも「人口」に関するデータはたくさん公開されていますが、都道府県や市区町村より細かな人口データとして、「平成22年 国勢調査の地域メッシュ統計 1kmメッシュ 男女別人口総数及び世帯総数 (2010/10/01)」を用いることにしました。手動でのダウンロードだと気が遠くなりそうな作業だったので[**RSelenium**](https://CRAN.R-project.org/package=RSelenium)を使って自動化しました。
+
+以下、Rコードです。メッシュを扱うため[**jpmesh**パッケージ](https://CRAN.R-project.org/package=jpmesh)を使います。集計方法や可視化のコードはHenrikさんのものを応用しています。
+
+```{r}
+library(magrittr)
+library(tidyverse)
+library(jpmesh)
+```
+
+```{r, include = FALSE}
+load("~/Dropbox/R/170502.RData")
+```
+
+1次メッシュ (5kmメッシュ)に分割されたテキストファイル (カンマ区切りなので注意)を読み込みます。同一形式の複数ファイル読み込みには`purrr::map()`を使うと便利です。データフレームとしてまとめたら、`purrr::set_names()`により変数名を変更しておきます。
+
+```{r, eval = FALSE, echo = TRUE}
+d <- list.files(pattern = ".txt$", full.names = TRUE) %>% 
+  map(~ read_csv(file = .,
+                        locale = locale(encoding = "cp932"),
+                        skip = 1)) %>% 
+  reduce(bind_rows) %>% 
+  set_names(c("meshcode8", "population", "man", "woman", "total_setai"))
+```
+
+このようなデータです。1kmメッシュコード、人口総数、男性の人口総数、女性の人口総数、世帯総数が含まれます。
+
+```{r, results = "asis", echo = FALSE}
+head(d) %>% knitr::kable(format = "markdown")
+```
+
+メッシュから緯度経度を割り当てたデータを用意します。これは可視化の際の座標として用います。
+
+```{r, eval = FALSE, echo = TRUE}
+d.mesh <- d$meshcode8[1:nrow(d)] %>% purrr::map(jpmesh::meshcode_to_latlon) %>% 
+  reduce(bind_rows) %>% 
+  dplyr::select(lat = lat_center,
+                lng = long_center) %>% 
+  mutate(meshcode8 = d$meshcode8[1:nrow(d)])
+```
+
+```{r, eval = TRUE, echo = TRUE}
+d %<>% left_join(d.mesh, by = "meshcode8") %>% 
+  group_by(lat = round(lat, 1), lng = round(lng, 1)) %>%
+  summarize(value = sum(population, na.rm = TRUE))  %>%
+  ungroup() %>% 
+  complete(lat, lng)
+```
+
+```{r japan_population_lines}
+d %>% ggplot(aes(lng, lat + 5 * (value / max(value, na.rm = TRUE)))) +
+  geom_line(size = 0.4, alpha = 0.65, color = '#5A3E37', aes(group = lat), na.rm = TRUE) +
+  ggthemes::theme_map() +
+  coord_equal(0.9)
+```
+
+特に人口密度の高い市区町村はどこでしょうか。以前書いた、緯度経度から該当する市区町村を判定するコードを使って確かめます。
+
+```{r, eval = FALSE, echo = TRUE}
+d.mesh.bind <- d %>% arrange(desc(value)) %>% head(10) %>% 
+  left_join(d.mesh %>% 
+              mutate(lat = round(lat, 1), lng = round(lng, 1)) %>% 
+              distinct(lat, lng, .keep_all = TRUE))
+
+d.density.top <- d.mesh.bind %>% 
+  purrr::slice_rows("meshcode8") %>% 
+  purrr::by_slice(~ find_city(dfs.jp, lon = .$lng, lat = .$lat)) %>% 
+  tidyr::unnest() %>% 
+  left_join(d.mesh.bind, by = "meshcode8") %>% 
+  select(city_name, value, lat, lng)
+```
+
+```{r, echo = FALSE, results = "asis"}
+d.density.top <- read_rds("~/Dropbox/R/170502_top_city10.rds")
+
+d.density.top %>% arrange(desc(value)) %>% 
+  select(city_name, value) %>% 
+  knitr::kable(format = "markdown")
+```
+
+せっかくなので地図で確認してみましょう。
+
+```{r, echo = FALSE, eval =FALSE}
+library(ggrepel)
+
+d4.mod <- d.density.top %>% separate(col = city_name, 
+         sep = "(東京都|道|府|県)", 
+         into = c("pref", "city"),
+         extra = "warn",
+         remove = TRUE) %>% 
+  select(pref, city, value, lat, lng)
+
+d5 <- d %>% 
+  left_join(d4.mod, by = c("lat", "lng", "value")) %>% 
+  mutate(top10 = if_else(!is.na(pref), "high", pref))
+
+d5 %>% ggplot(aes(lng, lat + 5 * (value / max(value, na.rm = TRUE)))) +
+  geom_line(size = 0.4, alpha = 0.65, aes(group = lat, color = top10), na.rm = TRUE) +
+  geom_text_repel(aes(label = d5$city, family = "IPAexGothic"), size = 1.4) + 
+  ggthemes::theme_map() +
+  coord_equal(0.9) + 
+  guides(color = FALSE) +
+  scale_color_manual(values = "#C29437", na.value = "gray")
+```
+
+
+
+
+
+
+
+
+国勢調査は定期的に行われているので、経年変化を見てみるのも楽しそうです。
+
+Enjoy!

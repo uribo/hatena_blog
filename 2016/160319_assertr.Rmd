@@ -1,0 +1,207 @@
+---
+title: "アサートを使って堅牢なデータ設計をしよう" 
+date: "2016年3月19日"
+output: 
+  md_document:
+    variant: markdown_github
+---
+
+```{r [SETTING], include = FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = TRUE, 
+                      message = FALSE, error = FALSE, warning = FALSE,
+                      fig.align = "center",
+                      tidy = TRUE,
+                      tidy.opts = list(blank = FALSE, width.cutoff = 40))
+```
+
+<!-- アサートってなんだよ、っていう人間がアサートおじさんになった理由 -->
+
+```{r, eval = TRUE, include = FALSE}
+library(magrittr)
+library(remoji)
+library(assertr)
+library(dplyr)
+```
+
+### `r emoji("tea")` 所感
+
+（内容の前に書いておきます）
+
+パイプ演算子によって、Rを使ったデータ分析の作業は流れるようにわかりやすく、実行しやすくなりました。その一方で、中間的処理の結果に対してはないがしろになっているという点があります。この処理で間違えていないだろうという「かもしれない運転」をした結果、大事故を起こしかねない状況と言えるかもしれません。データは簡単に変化するし、意図しない値を含んでしまう可能性があることを常に意識するべきで、都度振り返りが必要なのでしょう。
+
+しかしいちいち処理の内容を確認するのは面倒だし、何よりも分析の流れを止めてしまうのは良くない気がします。アサートを設定するのは面倒ではありますが、一度作っておくと繰り返しの処理で有効になるので大変便利で役立ちます。**`{assertr}`**パッケージでは、パイプ関数とアサートを組み合わせて利用することでデータ分析の流れを中断することなく、アサートを埋め込むことが可能となっています。とりあえず私は積極的に利用していくつもりです。
+
+ちなみにRによるアサートの紹介記事を id:yutannihilation が[1年前に書いて](http://notchained.hatenablog.com/entry/2015/03/22/140656)おり、アサートを導入する参考としてご覧になることを勧めます。しかしそこでは今回扱う**`{assertr}`** パッケージについて深く触れられていません。
+
+### データに生じる人為的な「バグ」
+
+データ分析の結果は実行してみないと結果がわからないものですが、そうしたものではなく、**データ入力時に桁数を多くするとか演算記号の指定を間違えたり、計算の途中に作った不本意な変数の列を残したままにしていたりするおかげで、コンピューターによる計算結果が予想しないものになることがあります。**それは日常的に潜む落とし穴のようなものであり、人間が指定したプログラムを釈然と実行するコンピューターと比較するとその「バグ」はなくなることがありません。
+
+「バグ」は些細なものから分析結果を左右するくらい大きな影響力をもったものまで実にさまざまです。このような「バグ」を生じないよう、自分自身が気をつけていても誰かがもってきたデータにはすでに「バグ」が潜んでいるかもしれず、「バグ」を見逃さないために何度もデータを確認しなくてはいけません。
+
+そうした分析の結果以外の人為的要因によって生じる、意図しないプログラムの実行を報告する仕組みとして「アサート assert」と呼ばれるものがあります。アサートは、プログラムコード内にプログラマー自信がそのコードの仕様や意図を記述しておくことで、実行時にその仕様に沿わない状態を検出した際に「バグ」として報告するものです（浅い知識なのであまり自信がない）。
+
+このような仕組みとしてRでは標準関数の`stopifnot()`関数がありますが、表現式に対して効果を発揮するので、データの中身について検証するために分析から一度離れる必要があります。
+
+```{r}
+# 表現式と与えられた値を比較し、その結果にそぐわない場合に処理を停止する
+#   （予測値と実際の値が等しい場合には何も表示しない）
+stopifnot(all.equal(pi, 3.1415927))
+
+stopifnot(iris$Sepal.Width > 1.5)
+```
+
+```{r, eval = FALSE, echo = TRUE}
+stopifnot(ncol(iris) == 4)
+# Error: ncol(iris) == 4 is not TRUE
+```
+
+```{r}
+iris %>% 
+  group_by(Species) %>% 
+  summarise(Sepal.Length = mean(Sepal.Length)) %>% 
+  knitr::kable()
+```
+
+ちょっと意地悪して、irisデータに手を加えて、再度コードを実行しましょう。
+
+```{r}
+my.iris <- iris
+
+set.seed(71)
+my.iris$Sepal.Length[c(3:8, 52:40, 134:140)] <- my.iris$Sepal.Length[c(3:8, 52:40, 134:140)] - rnorm(26, 8, 1.3)
+
+my.iris %>% 
+  group_by(Species) %>% 
+  summarise(Sepal.Length = mean(Sepal.Length)) %>% 
+  knitr::kable()
+```
+
+二つのデータフレームを比較するために**`{compareDF}`**を使ってみましょう。このパッケージはGitHub上で公開され、開発途中のものですが、データフレームの差異を視覚的に把握するのに便利です。
+
+```{r}
+library(compareDF)
+
+compare_df(head(iris), head(my.iris), group_col = "Species") %>% .$html_output
+```
+
+*Sepal.Length*列以外には変化がありませんが、*Sepal.Length*の一部の値が負の値になっています。そのために品種別に平均値を求めた上記のコードでも結果が異なりました。今回の場合は意図的にデータの値を変更させましたが、データはどこで変化するかわかりません。列が入れ替わっていたりすると、大変なことになりかねません。そうした事故を防ぐのに便利なのがアサートとなります。
+
+### アサートの導入
+
+先の処理にアサートを追加してみると次のようになります。
+
+```{r}
+library(assertr)
+```
+
+```{r, eval = FALSE, echo = TRUE}
+my.iris %>% 
+  assert(within_bounds(0, Inf), Sepal.Length) %>% # Sepal.Langthの値は負の値を取らない
+  group_by(Species) %>% 
+  summarise(Sepal.Length = mean(Sepal.Length))
+# Error: 
+# Vector 'Sepal.Length' violates assertion 'within_bounds' 26 times (e.g. [-3.56927760538818] at index 3)
+```
+
+エラーを吐き出し処理を停止しました。その原因は`assert()`関数に与えられた`within_bounds()`において変数*Sepal.Length*が０から無限大の値をとることを宣言しているためです。出力されたメッセージを読むと、宣言に対して与えられたデータが負の値を含むものが26回出現するために処理を停止したことがわかります。
+
+今度は正常なirisデータセットに対して行った処理にもアサートを埋め込みます。
+
+```{r, eval = FALSE, echo = TRUE}
+# 出力は省略
+iris %>% 
+  assert(within_bounds(0, Inf), Sepal.Length) %>% # Sepal.Langthの値は負の値を取らない
+  group_by(Species) %>% 
+  summarise_each(funs(mean))
+```
+
+*Sepal.Length*の値が`assert()`関数内で指定した処理、変数の値が取りうる範囲を指定する`within_bounds()`関数で定義した範囲内に含まれているため、アサートをクリアして平均値の出力を行うことができました。
+
+アサートはこのように、あらかじめ宣言された条件や値に対して判定をし、例外が発生した際に処理を停止して報告する機能があります。
+
+### **`{assertr}`**の働き
+
+Rパッケージの **`{assertr}`**は、Rのプログラム、特にデータ分析の基盤となるデータフレームに対し、あらかじめ予測される期待値や状況を定義しておいて、コードの実行時にアサートの値と与えられた内容を検証します。**`{dplyr}`**パッケージが提供する関数群とパイプ演算子（`%>%`）を用いた処理内容をつなげていく分析コードの中に導入することができるので、分析の手を止める必要がないという利点があります。
+
+**`{assertr}`**では、主に`verify()`と`assert()`の２つの関数によってアサートを定義していきます。`verify()`と`assert()`はどちらも似た働きをしますが、`verify()`関数では表現式によって検証を行うのに対して、`assert()`関数は、内部で関数を利用することが可能となっています。
+
+#### verify
+
+`verify()`は与えられた表現式の条件に対して真の値を返さない場合に処理を中止する関数です（条件に合格する場合にその値を返す）。
+
+```{r, eval = FALSE, echo = TRUE}
+iris %>% verify(Sepal.Length < 4)
+# Error in verify(., Sepal.Length < 4) : 
+#   verification failed! (150 failures)
+
+iris %>% verify(ncol(.) == 5) %>% dim()
+# [1] 150   5
+
+# 複数のアサートを利用することもできます
+iris %>% verify(ncol(.) == 5 | nrow(.) > 180) %>% nrow() # or 
+iris %>% verify(ncol(.) == 5 && nrow(.) > 180) # and
+# Error in verify(., ncol(.) == 5 && nrow(.) > 180) : 
+#   verification failed! (1 failure)
+```
+
+#### assert
+
+`assert()`では、現在次の３つの関数と自作関数を内部で使うことが想定されています。
+
+- `not_na()`: 変数に欠損値が含まれていないか
+- `within_bounds()`: 変数の値が範囲内の数値に含まれているか
+- `in_set()`: 数値や文字列が与えた組み合わせから構成されているか
+
+
+```{r, eval = FALSE, echo = TRUE}
+data("sleep", package = "VIM")
+sleep %>% assert(not_na, NonD)
+# Error: 
+# Vector 'NonD' violates assertion 'not_na' 14 times (e.g. [NA] at index 1)
+
+iris %>% 
+  assert(within_bounds(1, 8), Sepal.Length) %>% 
+  dim()
+
+iris %>% 
+  assert(in_set("setosa", "versicolor", "virginica"), Species)
+# とりうる値のすべての範囲を指定する必要がある
+in_set(3:19)(3)
+
+in_set(3,19)(c(3, 20))
+# Error in in_set(3, 19)(c(3, 20)) : 
+#   bounds must be checked on a single element
+
+# 別の関数をアサートに用いても良い
+iris %>% assert(function(x) {ncol(x) > 4}, Species)
+```
+
+行方向でのアサートを行うには`assert_rows()`を利用します。
+
+```{r, eval = FALSE, echo = TRUE}
+assert_rows(sleep, num_row_NAs, within_bounds(0, 2), BodyWgt:Danger)
+# Error: Data frame row reduction violates predicate 'within_bounds' 3 times (e.g. at row number 4)
+
+# こっちはおk
+assert_rows(sleep, num_row_NAs, within_bounds(0, 3), BodyWgt:Danger)
+```
+
+### `r emoji("link")` 参考
+
+開発者のブログ記事やvignettesが参考になります。イベントもあるようですね。
+
+- http://www.onthelambda.com/wp-content/uploads/2015/01/assertr.html
+- http://www.onthelambda.com/wp-content/uploads/2015/03/assertr-presentation.html#/
+- http://www.onthelambda.com/2015/01/23/assertive-r-programming-in-dplyrmagrittr-pipelines/
+- http://www.meetup.com/ja-JP/Charlotte-R-Users-Group/events/221030247/?eventId=221030247
+- http://biol548o.github.io/assert.html
+
+### `r emoji("computer")` 実行環境
+
+```{r, eval = TRUE}
+devtools::session_info() %$% packages %>% 
+  dplyr::filter(`*`  == "*") %>% 
+  dplyr::select(package, version, source) %>% 
+  knitr::kable(format = "markdown")
+```

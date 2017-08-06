@@ -1,0 +1,51 @@
+---
+title: "webスクレイピングする際にページ番号をさくっと把握したい人生だった"
+author: "Shinya Uryu"
+date: "2015年9月21日"
+output: 
+  md_document:
+    variant: markdown_github
+---
+
+[前回の記事](http://uribo.hatenablog.com/entry/2015/09/20/073404)でも書いたが、webスクレイピングを行う際に、取得したいデータが複数のページに分割されて（いわゆるpagination）表示されていることがしばしばある。
+
+対象のページがどれくらいあるのかを把握しておくと便利だよなと思ったので、paginationが行われているURLの（最大）ページ番号を取得するコードを書いてみた。例によってgistに置いてある。
+
+**`{xml2}`**と**`{rvest}`**に大きく依存しており、xpathを指定する必要がある。paginationのクエリーとして`page=`が既定値として与えてあるが、そうでない場合はpath引数で指定する。数字だけならNULLにする。
+
+```{r}
+devtools::source_gist("https://gist.github.com/uribo/6fda003fb35ab03f64f4")
+```
+
+実行結果。上手くいっているものと失敗しているものがある。失敗している理由については最後に書く。
+
+```{r}
+# 成功
+pagination("https://github.com/Rdatatable/data.table/issues",
+           xpath = '//*[@id="js-repo-pjax-container"]/div/div/div/a',
+           page = NULL)
+
+# 失敗
+pagination(x = "http://www.slideshare.net/search/slideshow?searchfrom=header&q=data",
+           xpath = '//*[@id="pagekey-slideshare_desktop_other"]/div/div/div/div/div/div/div/ul/li/a')
+pagination(x = "https://www.youtube.com/results?search_query=じょしらく",
+          xpath = '//*[@id="content"]/div/div/div/div/div/div/div/a')
+pagination("http://eiga.com/now/",
+           xpath = '//*[@id="now_movies"]/div[21]/div/a',
+           page = NULL)
+pagination("http://www.amazon.co.jp/s/field-keywords=シドニアの騎士",
+           xpath = '//*[@id="pagn"]/span/a',
+           page = "pg_")
+pagination("http://www.jalan.net/gourmet/cit_104210000/?afCd=&rootCd=&screenId=OUW2203",
+           xpath = '//*[@id="rankList"]/div/p/a',
+           page = "page_")
+pagination("http://tabelog.com/rstLst/?vs=1&sa=&sk=%25E3%2583%25A9%25E3%2583%2586%25E3%2582%25A2%25E3%2583%25BC%25E3%2583%2588&lid=top_navi1&svd=20150920&svt=2330&svps=2&hfc=1&sw=%25E3%2583%25A9%25E3%2583%2586%25E3%2582%25A2%25E3%2583%25BC%25E3%2583%2588",
+           xpath = '//*[@id="main-contents"]/div/div/span/a',
+           page = NULL)
+```
+
+一応正確に動いてはいるのだが、結果としてGitHub以外は失敗。その理由は簡単で、多くのサイトが特定の区切り値でページを分けていて、その区切り値しか取得できないためである。
+
+例えば、[こちらのページ](http://www.amazon.co.jp/s/field-keywords=シドニアの騎士)ではページ番号が20まで用意されているが、リンクは3までしかない。[pagination先のURL](http://www.amazon.co.jp/s/page=3&keywords=シドニアの騎士)では4まで表示される。このように、一度に最終ページまでリンクを貼っているサイトが極端に少ないのだ。
+
+というわけで今回の試みは失敗に終わった。無念。

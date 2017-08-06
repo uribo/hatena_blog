@@ -1,0 +1,53 @@
+---
+title: "knitrでSQLを利用する際はengine.optsを指定する" 
+author: "Shinya Uryu"
+date: "2016年2月27日"
+output: 
+  md_document:
+    variant: markdown_github
+---
+
+```{r [SETTING], include = FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = TRUE, 
+                      message = FALSE, error = FALSE, warning = FALSE,
+                      fig.align = "center",
+                      tidy = TRUE,
+                      tidy.opts = list(blank = FALSE, width.cutoff = 40))
+```
+
+```{r, eval = TRUE, include = FALSE}
+library(magrittr)
+library(remoji)
+```
+
+Rによるレポート作成で用いられる**`{knitr}`**パッケージでは、RだけでなくbashやPython、SASと言った多様な言語の実行を可能にしている。RMarkdownのチャンクとして呼び出すわけだけど、MySQLをエンジンにした場合にちょっと躓いた。
+
+```{r, engine='mysql', eval=FALSE}
+use mysql;
+show tables;
+# ERROR 1045 (28000): Access denied for user 'uri'@'localhost' (using password: NO)
+# Calls: <Anonymous> ... process_group.block -> call_block -> block_exec -> in_dir -> engine
+# In addition: Warning message:
+# running command ''mysql'  -e 'use mysql;
+```
+
+いや、そもそもデータベースに接続できないよ！って怒られる。というわけでこのチャンクの前に
+
+```{r, engine='bash', eval=FALSE}
+mysql --user=root --password=pass
+```
+
+をしたけど、正常に出力されない...。困ったナ、となって調べてみたら解決策が[見つかった](http://stackoverflow.com/questions/35246927/syntax-highlighting-while-rendering-sql-using-knitr)。チャンクオプションの*engine.opts*に接続に必要なbashスクリプトを記述しておけば良い。
+
+```{r, engine = 'mysql', engine.opts = "mysql --user=root --password=uri"}
+use mysql;
+show tables;
+
+exit
+```
+
+
+### 参考
+
+http://yihui.name/knitr/demo/engines/
+

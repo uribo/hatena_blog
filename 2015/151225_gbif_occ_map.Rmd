@@ -1,0 +1,159 @@
+---
+title: "RでGBIFに登録された生物情報のマッピング: 生物多様性ウェブマッピングシステムをローカル環境で実装する" 
+author: "Shinya Uryu"
+date: "2015年12月10日"
+output: 
+  md_document:
+    variant: markdown_github
+---
+
+```{r [SETTING], include = FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = FALSE, 
+                      message = FALSE, error = FALSE, warning = FALSE,
+                      fig.align = "center")
+```
+
+```{r, eval = TRUE, include = FALSE}
+library(remoji)
+```
+
+少し前（2015年12月11日）に国立環境研究所が運営する生物多様性ウェブマッピングシステム（以下、**BioWM**）が公開されました。
+
+http://www.nies.go.jp/biowm/index.php?lang=jp
+
+このサービスの紹介文をみると
+
+> 生物多様性ウェブマッピングシステム（BioWM）は、GBIFでのデータ公開とその活用、生物多様性情報のオープン化の促進を目的として、生物多様性データの可視化ツールを提供しています。 
+
+とあります。こういう試みはすごい良いし、何よりも**オープンソース・マップサービスやオープンソース・ソフトウェアを積極的に使用し作成したマップ成果物については[CC BY 4.0ライセンス](http://creativecommons.org/licenses/by/4.0/deed.ja)のもとで利用可能です**。
+
+これはこれで素晴らしいのですが、**性格が悪い・R脳なので、これと同じことがRでできてしまうよな**という感想を抱いてしまいました。マッピング自体もリーフレットで行っているので **`{leaflet}`**で再現できそうですし。
+
+とはいえ、具体的にどうすれば良いかということが浮かんでこなかったので、自己を尊重する、ということも兼ねて<span class = "hlt_bf">BioWMと同様の機能をRで実装</span>してみたいと思います。なお**Leafletによるマッピングの結果はブログに埋め込みできないのでRPubsにあげました**。こちらから動く実例をご覧になれます（BioWMのページと比較してください）。
+
+### BioWMの主要な機能
+
+1. **GBIFに登録された生物情報（GBIFオカレンスデータ）を抽出してマッピング**
+2. ユーザーがもつ生物情報をマッピング（エクセルファイルからの読み込み）
+3. 国立環境研究所 生物・生態系環境研究センターの研究データのマッピング（福島県東部の野生動物について）
+
+**今回は１をRでやります**。２についてはそのうち...。
+
+### 利用するRパッケージ
+
+これらのパッケージを利用します。
+
+* `r emoji("package")` **`{rgbif}`**パッケージ... GBIFが提供するAPIをRで利用しやすいようにしたパッケージ
+* `r emoji("package")` **`{spocc}`**パッケージ... GBIFを始め、その他の生物情報データベースにアクセスし、データを取得するためのパッケージ
+* `r emoji("package")` **`{spoccutils}`**パッケージ... **`{spocc}`**のユーティリティ用のパッケージで、生物情報をggplot2やLeaflet上へマッピングを実行する用
+
+**これらのパッケージはBioWMと同じくGBIFが提供するAPIを利用しているので、Rでも同様のことができる**、という話です。開発元は信頼と実績のropensciです。なお今回は一部の関数を利用しているだけなので、その他の便利な関数について知りたい方はパッケージのヘルプをご覧ください。
+
+### 生物情報のマッピング
+
+BioWMで行えるマッピングは以下の４種類です。注意としてこれらのマッピングページで表示されるデータの件数は緯度経度情報が無いものもヒットする、ということがあります。
+
+1. 学名検索
+2. 国別
+3. 分類群別
+4. 詳細検索
+
+順にやっていきましょう。まずは今回利用するRパッケージを読み込ませます。
+
+```{r, eval=TRUE, message=FALSE, warning=FALSE}
+# Rパッケージの読み込み
+library(rgbif)
+library(spocc)
+library(spoccutils)
+```
+
+#### 学名から
+
+複数の種を対象にすることもできるようですが、[バーダー１月号](http://www.bun-ichi.co.jp//tabid/57/pdid/17545-201601/catid/21/Default.aspx)の表紙を飾っている[ホオジロ Emberiza cioides](http://www.gbif.org/species/2491538)（スズメ目ホオジロ科）を対象にしてみましょう。
+
+2015年12月25日現在、BioWMでのホオジロのマッピング件数は4,918件となっています（以下、BioWMでのマッピングによる件数は同日のもの）。
+
+このうち、マッピングに使われる位置情報を持ったデータ件数は、GBIFのページを見るに1422件となります。ではRでこのデータをとってきましょう。**`{spocc}`**パッケージの`occ()`関数を利用します。
+
+```{r, eval=TRUE}
+(ebci_dat <- occ(query = "Emberiza cioides", from = "gbif", limit = 1500, has_coords = TRUE))
+```
+
+`occ()`関数の引数`query`に対象の種名を渡し、データのソースを*from*引数で指定することで生物情報を取得します。今回は*limit*引数でデータの取得件数を初期値の500から変更し、1500件までに設定しました。また、データは位置情報を含んでいるものだけを対象するよう、*has_coords*によって指定しました。
+
+Leafletによるマッピングをするには`map_leaflet()`を使います。
+
+```{r, eval=FALSE}
+ebci_dat %>% map_leaflet(zoom = 5, centerview = c(35.39, 139.44))
+```
+
+```{r, eval=FALSE, echo=FALSE}
+library(webshot)
+webshot(url = "file:////Users/uri/git/hatena_blog/map/map.html",
+        file = "misc/gbif_occ_map_ebci_dat")
+```
+
+
+ブログに埋め込みできないので図のみを表示しています。実際のLeafletによる実例はRPubsのページにあります。日本を中心にして少しズームしました。
+
+#### 国別
+
+BioWMではアジア地域の国々のデータに限定しています。[日本でのデータ件数](http://www.nies.go.jp/biowm/contents/c_occmap.php?lang=jp)は3,912,475件となっています。
+
+種のマッピングと同様、`occ()`を使いましたが、今回は`query`には何も渡さずに検索時のオプションである*gbifopts*引数において*country*で取得する国を指定することで、日本国内でのデータのみを抽出しました。同様に大陸 *continent* を指定するオプションもあります。
+
+```{r, eval=TRUE}
+occ(query = "", from = "gbif", gbifopts = list(country = "JP"))
+```
+
+BioWMと同じ件数のデータが該当しました。正常にデータが抽出できているようです。ただ、GBIFのoccurrence searchで取得できる件数の上限は200,000件まで（`occ()`の初期値は500）なので、実際にデータをマッピングするためにはoccurrence downloadを利用する必要があります。
+
+```{r, eval=FALSE, echo = TRUE}
+# Download keyを取得
+occ_download("country = JP")
+# しばし待ってから実行 
+#   key引数に渡す<Download key>は先ほど取得したもの
+occ_download_get(key = "<Download key>")
+```
+
+```{r, eval=FALSE, echo = FALSE}
+occ_download_get(key = "0022636-151016162008034", path = "ignore/gbif_jp.zip", overwrite = TRUE)
+```
+
+http://www.gbif.org/user/download のページにアクセスして、ダウンロード可能な状況かを確認してから実行すると良いでしょう（ここまでくると、Rでやるのではなくて手作業でダウンロードしてきた方が早かったりする。データ数が多い場合は特に）。
+
+#### 分類群別
+
+分類群別にマッピングするページでは、「界」「門」「綱」の分類階級で生物情報をマッピングすることができます。例えば顕花植物門のデータ件数は154,752,923件となっています。先ほどと同様、`occ()`を使います。
+
+```{r, eval=TRUE}
+(taxon_key <- name_backbone(name ="", phylum = "Magnoliophyta")$phylumKey)
+occ(query = "", from = "gbif", gbifopts = list(taxonKey = taxon_key))
+```
+
+検索時のオプションである*gbifopts*では、分類群によって異なる*taxonKey*を指定しました。taxonKeyは`name_backbone()`によって調べることができます。GBIFの検索ツールでは顕花植物門 MagnoliophytaのtaxonKeyは49となっているので、それを指定しました。
+
+きちんと検索する対象の件数があっていますね。
+
+<!-- http://api.gbif.org/v1/occurrence/search?taxonKey=49, http://www.gbif.org/occurrence/search?taxon_key=49 -->
+
+#### 詳細検索
+
+APIのパラメータを指定することで、より細かな条件で生物情報の抽出ができます。 **`{rgbif}`**でもAPIパラメータを網羅しているので、詳細検索と同じ機能を実現できます。
+
+そのためには国別表示や分類群別表示で行ったように`occ()`関数内の*gbifopts*引数において、リスト形式でパラメータ名とパラメータの値を渡します。指定可能なパラメータの例として、緯度、経度、採集日・観察日といったものがあります（`occ_options()`を参考に）。
+
+
+### 所感
+
+R上でやりましたが、BioWMのサービスのように何十万件、何百万件のデータを表示するのは厳しい感じです。せいぜい種のマッピングくらい。
+
+ダウンロードしたデータのマッピングは次回にお預けしました（BioWMの機能と同じ感じなので）。
+
+BioWMにより近づけるためにはShinyアプリにするというのは一つのアイデアかもしれません。そういえば、そんなアプリを以前見かけた記憶がありますが、ブックマークなどから見つけることができませんでした。
+
+うまくやればできると思います。誰かが作ってくれるかな。
+
+最後に類似のShinyアプリを紹介します。生物データのマッピングに興味がある方はご参考ください。
+
+[Finnish Breeding Bird Atlas](https://ttso.shinyapps.io/lintuatlas/)

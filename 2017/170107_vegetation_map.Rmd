@@ -1,0 +1,197 @@
+---
+title: "Rで植生図を描画する" 
+author: "Shinya Uryu"
+date: "2017年1月7日"
+output: 
+  md_document:
+    variant: markdown_github
+---
+
+```{r [SETTING], include = FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = TRUE, 
+                      message = FALSE, error = FALSE, warning = FALSE,
+                      fig.align = "center",
+                      tidy = FALSE,
+                      tidy.opts = list(blank = FALSE, width.cutoff = 40))
+```
+
+```{r, eval = TRUE, include = FALSE}
+library(magrittr)
+library(remoji)
+```
+
+植生図というものがあります。これは地図表現の一つで利用目的に応じた特定の項目（主題）を表現した地図で、人口の内訳とか土地利用図などがあります。植生図は植生、すなわち、ある地域に生育する植物集団の特徴を地図上に表現したものと思ってもらって構いません。
+
+さて、日本全国の植生の現状を整備、保護・活用することを目的とした調査が環境省によって行われています。これは「自然環境保全基礎調査」の中の「植生調査」と呼ばれる調査なのですが、過去数回の調査の成果物として植生図GISデータおよび植生図画像が提供されており、現在も最新の調査結果である平成26年度・27年度のものが追加・更新されています。
+
+例えば2.5万地形図 図葉名「箭田」では[こちらのページ](http://gis.biodic.go.jp/webgis/sc-002.html#webgis/513375)のリンクにあるような画像ファイルです。前置きが長くなりましたが今回は、すでに公開されている植生図について、Rで作ってみようという話です。
+
+## 用意するもの
+
+- Rおよび各種ライブラリ
+- Shapefile... 自然環境保全基礎調査Shapefileダウンロードから、岡山県のものをダウンロード
+
+## 方法
+
+id: yutannihilationによると[RでGISをやるときにはsfパッケージ](http://notchained.hatenablog.com/entry/2017/01/06/213333)になるようなのですが、古い人間なので**`{maptools}`**でShapefileを読み込みます。**勉強不足による敗北感があります**。**`{sf}`**を使った地理空間データの読み込みではsfというオブジェクトとして扱われますが、**`{maptools}`**では従来の地理空間クラスの一種であるSpatialPolygonsDataFrameとして扱われます。（余談。**`{sf}`**には[未来を感じます](https://github.com/rstudio/leaflet/pull/350)）
+
+```{r}
+# devtools::install_github("tidyverse/tidyverse")
+library(tidyverse)
+library(forcats)
+library(magrittr)
+
+# 513375 箭田のShapefileファイルを読み込む
+map <- maptools::readShapeSpatial("~/Downloads/vg67_33/shp513375/p513375.shp", 
+                                  proj4string = sp::CRS("+proj=utm +zone=53 +ellps=WGS84 +units=km"))
+# dataの変数名を確認
+map@data %>% names()
+
+# 文字列が文字化けしているので修正
+map@data$HANREI_N[1]
+map@data %<>% mutate_if(is.character, stringr::str_conv, encoding = "SJIS")
+map@data$HANREI_N[1]
+```
+
+ここで示したHANREI_Nという変数が、植生調査の結果として得られた統一凡例名となります。箭田データでは、合計で30の凡例が使用されています。
+
+```{r}
+map@data$HANREI_N %>% unique() %>% length()
+```
+
+### 凡例の調整
+
+植生図では、多様な群落を色や塗り分けの種類を分けることが大事です。自然環境保全基礎調査の植生図でも、凡例に応じた塗り分けが実施されています。ですが、元のファイルに凡例と対応した色の指定がないので、ここはちまちまと画像ファイルを見ながらそこで使われている色を凡例番号として利用されるORG_NOという列と対応させる処理をとります。
+
+```{r}
+map@data %<>% mutate(
+                     color = case_when(
+                       .$ORG_NO == "12" ~ "#DBC9AAFF",
+                       .$ORG_NO == "16" ~ "#FAE6A6FF", 
+                       .$ORG_NO == "17" ~ "#FEE085FF", 
+                       .$ORG_NO == "18" ~ "#FED9CDFF", 
+                       .$ORG_NO == "2" ~ "#B4E983FF", 
+                       .$ORG_NO == "20" ~ "#BFE5DEFF", 
+                       .$ORG_NO == "21" ~ "#98F7EDFF", 
+                       .$ORG_NO == "22" ~ "#C6C5F3FF", 
+                       .$ORG_NO == "23" ~ "#F8D9DCFF",
+                       .$ORG_NO == "3" ~ "#95DE82FF",
+                       .$ORG_NO == "4" ~ "#C6B8B8FF",
+                       .$ORG_NO == "5" ~ "#C28182FF",
+                       .$ORG_NO == "6" ~ "#A67F81FF",
+                       .$ORG_NO == "7" ~ "#80C0E1FF",
+                       .$ORG_NO == "8" ~ "#9981BEFF", 
+                       .$ORG_NO == "9" ~ "#FFF585FF", 
+                       .$ORG_NO == "a" ~ "#FFF2D9FF",
+                       .$ORG_NO == "b" ~  "#C7ECFEFF", 
+                       .$ORG_NO == "c" ~ "#F3D8CBFF",
+                       .$ORG_NO == "d" ~  "#B3F3F2FF",
+                       .$ORG_NO == "e" ~  "#F3D8CCFF",
+                       .$ORG_NO == "f" ~   "#F3FDE3FF", 
+                       .$ORG_NO == "g" ~ "#FEFD87FF",
+                       .$ORG_NO == "h" ~   "#F9FD87FF", 
+                       .$ORG_NO == "i" ~ "#F2F2F2FF", 
+                       .$ORG_NO == "k" ~ "#CCD3CCFF", 
+                       .$ORG_NO == "L" ~  "#BFBFBFFF",
+                       .$ORG_NO == "m" ~ "#BAACA9FF", 
+                       .$ORG_NO == "r" ~ "#FED185FF", 
+                       .$ORG_NO == "w" ~ "#E6FFFCFF"))
+```
+
+次に凡例を自然環境保全基礎調査のもので使われている順番に並び替えます。一度、凡例番号と統一凡例名からなる文字列を要因データとし、`forcats::fct_relevel()`により水準の並びを入れ替えます。
+
+```{r}
+map@data %<>% mutate(hanrei_new = fct_relevel(
+  as.factor(paste(ORG_NO, HANREI_N)),
+  c("3 カナメモチ－コジイ群集", "22 ヤナギ高木群落（ＶＩ）", "4 シイ・カシ二次林", "2 アベマキ－コナラ群集", 
+    "5 アカマツ群落（ＶＩＩ）", "6 ネズ－アカマツ群落", "17 低木群落", "23 クズ群落", 
+    "9 ススキ群団（ＶＩＩ）", "18 伐採跡地群落（ＶＩＩ）", "8 ヌマガヤオーダー", "7 ヨシクラス", 
+    "20 ツルヨシ群集", "21 オギ群集","12 スギ・ヒノキ・サワラ植林", "16 竹林",
+    "h ゴルフ場・芝地", "g 牧草地", "f 路傍・空地雑草群落", "c 放棄畑雑草群落", "e 果樹園", 
+    "a 畑雑草群落", "b 水田雑草群落", "d 放棄水田雑草群落", "k 市街地", 
+    "i 緑の多い住宅地", "L 工場地帯", "m 造成地", "w 開放水域", "r 自然裸地")))
+```
+
+これで準備は完了です。
+
+### 主題図を描く
+
+肝心の地図描画作業です。ここでは**`{tmap}`**というパッケージを使って楽に主題図を描画させることができます。**`{tmap}`**はRにおける定番グラフ描画ライブラリの**`{ggplot2}`**をベースとしており、**`{ggplot2}`**のようにレイヤーを重ねていくことで目的の図を作成していきます。また日本語のラベルを使うために**`{extrafont}`**も読み込んでおきます。
+
+```{r}
+library(tmap)
+library(extrafont)
+# フォントの読み込み
+loadfonts(quiet = TRUE)
+```
+
+`tm_shape()`と`tm_fill()`を使って地図とデータを描画させたものをベースとし、ここに要素を重ねていきます。出来る限り元の植生図を再現したものを作っていきましょう。
+
+```{r}
+colorsets <- map@data %>% arrange(hanrei_new) %>% use_series(color) %>% unique()
+
+vg.map <- tm_shape(map) +
+  tm_fill("hanrei_new", title = "植生図凡例", palette = colorsets, alpha = 0.6)
+```
+
+凡例の位置や、縮尺、方位記号、タイトルや各種の配置を調整し、完成です。
+
+```{r vg_map_513375_箭田, fig.width=8, fig.height=5}
+vg.map +
+  tm_text("ORG_NO", size = 0.35) +
+  tm_borders(lwd = 0.6, col = "black", alpha = 0.5) +
+  # 縮尺の追加
+  tm_scale_bar(position = c("right", "bottom")) +
+  # 方位記号の追加
+  tm_compass(type = "4star", color.dark = "red", show.labels = 2, size = 2, position = c("right", "top")) +
+  tm_layout("513375 箭田", 
+            title.position = c("left", "top"), 
+            title.size = 1,
+            frame = FALSE, 
+            fontfamily = "IPAexGothic",
+            legend.outside = TRUE,
+            inner.margins = c(0.10, 0.06, 0.10, 0.12)) +
+  tm_credits("1/25,000植生図「箭田」GISデータ(環境省生物多様性センター)を使用し、瓜生真也が作成・加工したものである。\n(http://gis.biodic.go.jp/webgis/sc-002.html#webgis/513375)",
+             size = 0.4,
+             position = c("left", "bottom")) +
+  tm_legend(bg.color = "white", 
+            # スケールバーを枠外に
+            # attr.outside = TRUE,
+            # legend.outside.size = 0.2,
+            legend.text.size = 0.6,
+            frame = FALSE, legend.outside = TRUE)
+```
+
+いい感じです。凡例と色の紐付けだけが面倒ですが、簡単に植生図を描画できました。
+
+Enjoy!
+
+### おまけ: leafletでも
+
+**`{leaflet}`**で植生図を描画させると、拡大して確認できるしタイルを重ねられるので便利ですね。やっていきましょう。せっかくなので国土地理院提供の地理院タイルを背景に描画させます（[参考](http://notchained.hatenablog.com/entry/2015/10/26/231508）。
+
+```{r}
+library(leaflet)
+atr <- "<a href='http://maps.gsi.go.jp/development/ichiran.html' target='_blank'>地理院タイル</a>"
+
+leaflet(map) %>%
+  addTiles("http://cyberjapandata.gsi.go.jp/xyz/pale/{z}/{x}/{y}.png",
+           attribution = atr) %>%
+  addPolygons(
+    stroke = FALSE, 
+    fillOpacity = 0.8, 
+    smoothFactor = 0.5,
+    color = ~color,
+    label = ~HANREI_N,
+    # labelOptionsはleaflet開発版(1.0.2.9008)の機能です
+    labelOptions = labelOptions(opacity = 1, 
+                   noHide = TRUE, 
+                   textOnly = FALSE,
+                   direction = "auto", offset = c(20,-15))
+  )
+```
+
+
+## 出典
+
+このページで表示した植生図は、1/25,000植生図「箭田」GISデータ(環境省生物多様性センター)を使用し、瓜生真也が作成・加工したものである。(http://gis.biodic.go.jp/webgis/sc-002.html#webgis/513375)

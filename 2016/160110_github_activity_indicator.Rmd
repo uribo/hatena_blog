@@ -1,0 +1,46 @@
+---
+title: "RでGitHubの活動（芝）を出力する" 
+author: "Shinya Uryu"
+date: "2016年1月10日"
+output: 
+  md_document:
+    variant: markdown_github
+---
+
+```{r [SETTING], include = FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = FALSE, 
+                      message = FALSE, error = FALSE, warning = FALSE,
+                      fig.align = "center")
+```
+
+```{r, eval = FALSE, include = FALSE}
+library(remoji)
+```
+
+最近流行り（？）のGitHubでの活動を表す「芝」をRで表示する方法。
+
+http://blog.a-know.me/entry/2016/01/09/222210
+
+実は自作パッケージの [**`{motivator}`**](https://github.com/uribo/motivator)に実装されている（一年間放置していたのでちょっと手を入れ直した）。
+
+実行すると次のように、GitHubの芝っぽいものが描画される。
+
+```{r motivator_indicate_gh_contribution, eval = TRUE, fig.width = 8, fig.height = 3}
+# devtools::install_github("uribo/motivator")
+library(motivator)
+# username引数でストーキングしたいGitHubのアカウント名を指定する
+indicate_gh_contribution(username = "uribo")
+```
+
+https://github.com/uribo のものと比較してみてほしい。それっぽいものができている。個人的には満足。
+
+ただ、これはプライベートリポジトリでの活動を含んでいないものなのでなんとかしたい（ **`{rvest}`**でなんとかなるやろ、と思ってやってみたらログインがうまくいかなくて挫折した）。
+
+### 関連
+
+http://d.hatena.ne.jp/dichika/20150108/p1
+
+http://qiita.com/uri/items/f62ae42af8c28a053ad7
+
+
+Enjoy `r emoji("grin")`

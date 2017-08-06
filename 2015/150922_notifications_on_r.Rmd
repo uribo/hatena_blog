@@ -1,0 +1,101 @@
+---
+title: "Rで通知"
+author: "Shinya Uryu"
+date: "2015年9月22日"
+output: 
+  md_document:
+    variant: markdown_github
+---
+
+「**Rに管理されたい。**」...そういう願望が人類共通、誰しもにあると思う。
+
+<span class="hlt_bf">Rじゃなくてもできるはずだけど、Rに管理されたい願望が強いので、Rに管理してほしい。</span>
+
+### コードの実行完了を通知する
+
+ちょっと調べた限りで以下の記事が見つかった。
+
+* [Getting R to notify you when it’s finished running | Alice M. Brawley](http://alicebrawley.com/getting-r-to-notify-you-when-its-finished/)
+* [Notifications from R | The stupidest thing...](https://kbroman.wordpress.com/2014/09/03/notifications-from-r/)
+
+
+<iframe src="//www.slideshare.net/slideshow/embed_code/key/qdyGKDLpLFqn33" width="425" height="355" frameborder="0" marginwidth="0" marginheight="0" scrolling="no" style="border:1px solid #CCC; border-width:1px; margin-bottom:5px; max-width: 100%;" allowfullscreen> </iframe> <div style="margin-bottom:5px"> <strong> <a href="//www.slideshare.net/TokorosawaYoshio/r41-36956682" title="Rから通知をとばす" target="_blank">Rから通知をとばす</a> </strong> from <strong><a href="//www.slideshare.net/TokorosawaYoshio" target="_blank">TokorosawaYoshio</a></strong> </div>
+
+これらは特定のコードが実行した後に通知してくれるというもの。メールやらYoやら、手段はいろいろとある。ただ、メールは正直ダサいし、Yoも今では使っていない。もっとシンプルに通知してくれるものが欲しい。
+
+更に探してみたらgistでキャプテンがすでに書いていた。惚れる。やっぱりこの人についていきたい。
+
+
+[https://gist.github.com/hrbrmstr/6545433:title]
+
+
+これはMacのターミナル上で動作する[terminal-notifier](https://github.com/julienXX/terminal-notifier)を利用して、コードの実行完了を通知センターに表示させるというもの。処理のあとに`notify()`を実行すれば、通知センターにその旨が表示される。
+
+なお環境によって動作しないことがあるのでちょっと[書き直した](https://gist.github.com/uribo/9c419af5547fde20d2a7)（terminal-notifierのパスが異なるため）。
+
+
+
+terminal-notifierがインストールされているMacなら、次のコードで動作確認ができる。
+
+```{r, eval = FALSE}
+library(devtools) # install.packages("devtools")
+source_gist("9c419af5547fde20d2a7")
+system("sleep 2")
+notify("Long op complete")
+```
+
+処理の長いコードを実行したときにはこれを使うと良さそうだ。実行しているアプリに応じてアイコンが変化するのがおしゃれ！
+
+### LaunchAgentsでRコードを実行する
+
+さきのものはあくまでも自分が関数を実行しないと通知してくれないので、**満足できない**。もっと管理されたい。というわけで特定の時間になったら**自動的にコードを実行して通知する**という仕組みを考えてみた。
+
+Unix系のOSで自動実行するコマンドとしてcronがあるが、MacではLaunchAgents使うべし、なる知見を得たので、そちらで書くことにした。
+
+まずは、実行したいするRコードを作成する。
+
+```{r, eval = FALSE}
+system(paste("/usr/local/bin/terminal-notifier", "-title R -message 時間になりました -subtitle", format(Sys.time(), "%X"), "-sender org.R-project.R -sound default", sep = " "))
+```
+
+ついでplistファイルを書き、`/Users/<USER>/Library/LaunchAgents/`なりに置いておく（保存するディレクトリに応じて挙動が異なるので注意）。起動する時間、間隔なども設定できる。
+
+参考) [launchd.plistの書き方 | Drowsy Dog's Diary](http://ka-zoo.net/2013/04/launchd-plist/)
+
+```plist
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>test-time-notice</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/usr/bin/R</string>
+		<string>-e</string>
+		<string>source("/Users/<USER>/notify.R")</string>
+	</array>
+	<key>StartCalendarInterval</key>
+	<dict>
+		<key>Hour</key>
+		<integer>10</integer>
+		<key>Minute</key>
+		<integer>13</integer>
+	</dict>
+	<key>StartInterval</key>
+	<integer>360</integer>
+</dict>
+</plist>
+```
+
+つぎのコマンドで読み込むと、10時13分にRコードが実行される。
+
+```bash
+launchctrl load `/Users/<USER>/Library/LaunchAgents/test-time-notice.plist`
+```
+
+[f:id:u_ribo:20150922112957p:plain]
+
+終電を逃さないようにだとか、お昼になったとか、１時間経ったから休憩するようにとか、条件に応じてRに管理されるようにしたい。
+
+Enjoy!

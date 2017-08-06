@@ -1,0 +1,140 @@
+---
+title: "【簡易版】RからGoogle Books APIを叩いてブクログに書籍登録する" 
+author: "Shinya Uryu"
+date: "2016年1月9日"
+output: 
+  md_document:
+    variant: markdown_github
+---
+
+```{r [SETTING], include = FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = FALSE, 
+                      message = FALSE, error = FALSE, warning = FALSE,
+                      fig.align = "center")
+```
+
+```{r, eval = FALSE, include = FALSE}
+library(remoji)
+```
+
+読んだり買ったりした本の記録をEvernoteにとっているのだけど、きちんとしたサービスを使うか、という気になって[ブクログ](http://booklog.jp)を選んだ。しばらく使ってみて思ったのだが、キーワードから本を探して「本棚」に登録するという過程をとるのが面倒。ちまちま入力していると**これ、Rでできないだろうか**という気になる。
+
+探してみたら、[まとめて登録 (ISBN)](http://booklog.jp/input)という機能があった。これを使えばISBNあるいはASINコードをフォームに送信することで複数の本が登録可能で便利。ただ、**ISBNは本を見たり、インターネットで調べないとわからなかったりする**。面倒だ。
+
+なのでチャチャっと書籍の情報を検索してブクログに登録する仕組みが必要になった。なければ作る、ホクソエムの誓いである。
+
+### `r emoji("hammer")` やったこと
+
+表題の通りで
+
+1. 登録したい書籍のISBN情報をGoogle Books APIを使って調べる
+2. ブクログにログインしてISBNから本棚に登録する
+
+GoogleのAPIを使うときは[Google Developers Console](https://console.developers.google.com/)からキーなりなんなりをとってくるのがお作法っぽいけど、今回は簡易版なのでそういうのは必要としない。利用の際にはAPIの上限に達しないように注意が必要。
+
+#### `r emoji("package")` 使用パッケージ
+
+```{r}
+library(jsonlite)
+library(purrr)
+library(xml2)
+library(rvest)
+library(dplyr)
+```
+
+#### Google Books API から対象の書籍情報を取得する
+
+```{r, eval = TRUE}
+# 本のタイトルの一部やキーワードを用意する
+books <- c("R 言語")
+
+# キーワードを元にGoogle Books APIで書籍情報を検索
+#   https://www.googleapis.com/books/v1/volumes?q=R+言語 というURLを生成する
+#   必要な変数のみ選択
+#     title, subtitle, authors, publisher, publishedDate, industryIdentifiers
+#   ISBNのある「書籍」に絞る
+#   複数の著者がいる場合、リストからベクトルにする
+#   データフレームに結果を保存するがindustryIdentifiers変数はあとで削除する
+#     書籍の順番は検索結果と等しい https://www.google.co.jp/search?q=R+言語
+df_res <- paste0("https://www.googleapis.com/books/v1/volumes?q=",
+           strsplit(books, "[[:space:]]") %>% unlist() %>% paste(., collapse = "+")) %>% 
+  jsonlite::fromJSON(flatten = FALSE) %$% 
+  items$volumeInfo %>% 
+  dplyr::select(title, subtitle, authors, publisher, publishedDate, industryIdentifiers) %>% 
+  dplyr::filter(grepl("ISBN_10", industryIdentifiers)) %>% 
+  dplyr::mutate(authors = authors %>% purrr::map_chr(~ unlist(.) %>% paste(., collapse = ", ")))
+
+df_res %<>% dplyr::select(-industryIdentifiers) %>% 
+  dplyr::bind_cols(df_res$industryIdentifiers %>% 
+                     purrr::map_df(~ dplyr::filter(., type == "ISBN_10") %>% 
+                                     dplyr::select(identifier)))
+```
+
+こんな感じのデータフレームができる。**待望の「R言語徹底解説」は今月発売であるが、まだGoogle Booksに登録されていない模様。**
+
+R言語徹底解説
+
+
+```{r, eval = TRUE, results = 'asis'}
+df_res %>% knitr::kable(format = "markdown")
+```
+
+登録したい書籍のISBNを求めるには次のようにする。いずれかの方法で良い。
+
+```{r, eval = TRUE}
+df_res$identifier[1]
+df_res %>% dplyr::filter(grepl("石田基広", authors)) %>% {
+  print(.)
+  # ブクログに登録するため、ISBNのベクトルを保存しておく
+  book_isbn <<- .$identifier
+}
+```
+
+#### ブクログに登録
+
+続いてブクログに書籍を登録する。ログインする必要があるので**`{rvest}`**パッケージを使ってセッションを作るところから始める。
+
+```{r, eval = FALSE, echo = TRUE}
+# ログインようのセッション
+session <- rvest::html_session(url = "https://booklog.jp/login")
+```
+
+```{r, eval=FALSE, echo = FALSE}
+set_value <- html_form(session)[[1]] %>% set_values(account = "uribo087", password = "watermelon")
+```
+
+`set_values()`に与えるアカウント名とパスワードはそれぞれ変更。
+
+```{r, eval=FALSE, echo = TRUE}
+# ログインのため、フォームに送信するアカウントパスワードを用意
+set_value <- html_form(session)[[1]] %>% set_values(account = "<アカウント名>", password = "<パスワード>")
+```
+
+```{r, eval = FALSE, echo = TRUE}
+form_isbn <- submit_form(session, set_value) %>% jump_to("/input") %>% 
+  html_form()
+
+# フォームに値を渡す。この時、ISBNが改行されるようにする
+form_isbn[[2]]$fields[1]$isbns$value <- paste(book_isbn, collapse = "\n")
+
+submit_form(session, set_value) %>% 
+  jump_to("/input") %>% 
+  submit_form(., form_isbn[[2]])
+# <session> http://booklog.jp/input
+#   Status: 200
+#   Type:   text/html; charset=UTF-8
+#   Size:   34095
+```
+
+というわけで`r emoji("books")` 登録できた。
+
+http://booklog.jp/users/uribo087
+
+めでたい `r emoji("white_flower")`
+
+### `r emoji("muscle")` 所感
+
+* 【簡易版】としたけど、どこが簡易なのかよくわからない。APIキーを用意するのが【通常版】ということで...
+* `paste()`関数の*collapse*引数を初めて使ったような...
+* **`{purrr}`**パッケージの便利さがわかってきた
+* APIの取得結果を関数にして、`dplyr::arrange()`とかしたらもうちょっと捗りそう

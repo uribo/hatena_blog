@@ -1,0 +1,109 @@
+---
+title: "RStudioでの作業状況を記録するWakaTimeプラグインを作成しました" 
+author: "Shinya Uryu"
+date: "2016年1月30日"
+output: 
+  md_document:
+    variant: markdown_github
+---
+
+```{r [SETTING], include = FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = FALSE, 
+                      message = FALSE, error = FALSE, warning = FALSE,
+                      fig.align = "center",
+                      tidy = TRUE,
+                      tidy.opts = list(blank = FALSE, width.cutoff = 40))
+```
+
+```{r, eval = TRUE, include = FALSE}
+library(remoji)
+```
+
+日々ギョウムやケンキューに追われる皆さん、進捗どうですか。進捗、可視化できると楽しいですし仕事に対する意欲を高めるために良いですよね。そんなことを可能にする[WakaTime](https://wakatime.com) というウェブサービスがあります。WakaTimeでは普段コーディングなどで使用しているエディタに専用のプラグインを導入することでコードをどのくらい書いたか、どのプロジェクトのどのブランチでどれくらいの時間作業をしていたかがわかります。
+
+参考記事
+
+http://netallica.yahoo.co.jp/news/20150818-00056671-appgiga
+
+http://plus.appgiga.jp/masatolan/2015/08/18/56671/
+
+プラグインが対応しているエディタは[このページ](https://wakatime.com/editors)にある通りです。AtomやSublime Text 2、Emacsなど有名どころには対応していますね。**だがしかし肝心のRStudioのプラグインはまだ開発されていない様子**です。
+
+...WakaTimeは使いたい。されどプラグインがない。というわけで<span class = "hlt_bf">**非公式**のWakaTimeプラグインをRパッケージとして作りました</span>。WakaTimeのR(RStudio)用プラグインということで**`{wakatimer}`**です。
+
+https://github.com/uribo/wakatimer
+
+## 準備
+
+利用する時に以下の項目について用意する必要があります。
+
+1. [WakaTime](https://wakatime.com/signup)のアカウント
+2. アカウント作成時に与えられる[APIキー](https://wakatime.com/settings)
+3. WakaTimeへのOAuth 2.0認証に用いる[アプリケーションの登録](https://wakatime.com/apps)
+    * アプリケーションの登録では、Authorized Redirect URIsのところを"http://localhost:1410"にしておいてください。そしてその下にある"App ID"と"App Secret"の値が必要になります。
+4. `devtools::install_github("uribo/wakatimer")`
+
+## wakatimerの使い方
+
+<span class = "hlt_bf">*パッケージを読み込んで、`write_scope()`という関数を実行するだけです。</span>
+
+詳しい説明は以下の通りになります。
+
+まず肝心のパッケージを読み込んでください。
+
+```{r}
+library(wakatimer)
+# Next, to run `write_scope()` and authentication for file status record :)
+```
+
+パッケージを読み込むと、WakaTimeにデータを送るために必要な認証を行う`write_scope()`をやるようにメッセージが出ます。パッケージをインストールしてから最初の`write_scope()`ではWakaTimeの認証を求められます（プロジェクトごとに認証が必要）。`write_scope()`には引数として*app.id*と*app.secret*が用意されています。ここに渡す値は準備のところで取得したアプリの値になります。
+
+毎回入力するのが面倒なのでオススメの使い方として、*.Rproile*に次のような記述をしておくと良いです。
+
+```{r}
+Sys.setenv(
+  WAKATIME_KEY     = "<your api key>",
+  WAKATIME_ID      = "<application id>",
+  WAKATIME_SECRET  = "<application secret>"
+)
+```
+
+というわけで改めて`write_scope()`を実施します。
+
+```{r}
+write_scope()
+```
+
+これで準備完了です。ここからファイルの変更を記録していく仕組みです。他に必要なことはありません。**あとは普段通りRStudioでコードを書いていきます**。`q()`でRStudioを終了すると、データが送信されますので特に気にせず使い続けることができます。**パッケージを読み込んだだけだど記録しない点だけ注意してください**。
+
+インターネットに接続されていない時はローカルデータベースにデータを保存しておいて、次回、ネットワーク接続がある時に`write_scope()`を実施するとデータがWakaTimeへ送られます。
+
+### APIを使った進捗の可視化
+
+**`{wakatimer}`**パッケージでは、WakaTimeが提供するAPIをラップした関数を用意しています。なのでR上でも進捗状況の確認が可能です。
+
+```{r}
+wakatimer:::wt_api(resource = "heartbeats", 
+                   key = Sys.getenv("WAKATIME_KEY"), 
+                   param = list(date = format(Sys.Date(), "%m/%d/%Y"), time = "time", "entity")) %>% 
+  .$data %>% tail()
+```
+
+データをとってきてからがRの本領を発揮すると言っても良いので、ここは力を入れたいところなのですが、**まだできていません**。次のバージョンまでにWakaTimeのダッシュボードで表示できる内容については関数で一発表示できるようにしたいです。
+
+### 諸注意
+
+* 時々挙動が怪しいです。正常にPOSTされなくても、めげずにコードを書いてください。
+* Rの終了がちょぴっと遅くなります。
+* 試した環境がとても限定的なので少なからずバグやエラーがあります。報告いただければ対応します。
+    * **`{wakatimer}`**ではRStudioがもっている「最近開いたファイル」の情報を利用していますが、Windowsのパスがわかりません...。一応設定していますが、間違っているかもしれません。ぜひお知らせください。
+
+## `r emoji("computer")` 実行環境
+
+```{r, eval=FALSE, results = 'asis'}
+devtools::session_info() %$% packages %>% 
+  dplyr::filter(`*`  == "*") %>% 
+  dplyr::select(package, version, source) %>% 
+  knitr::kable(format = "markdown")
+```
+

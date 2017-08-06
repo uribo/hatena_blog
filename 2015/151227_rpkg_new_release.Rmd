@@ -1,0 +1,193 @@
+---
+title: "毎朝の習慣としてRパッケージの監視をしています" 
+author: "Shinya Uryu"
+date: "2015年12月27日"
+output: 
+  md_document:
+    variant: markdown_github
+---
+
+```{r [SETTING], include = FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = FALSE, 
+                      message = FALSE, error = FALSE, warning = FALSE,
+                      fig.align = "center")
+```
+
+```{r, eval = TRUE, include = FALSE}
+library(remoji)
+```
+
+タイトルに偽りあり。**これからやっていこう**、という話です。
+
+Rの機能を拡張する便利なパッケージはRそのものやRのパッケージを管理するCRANに登録されています。私は、パッケージの読み込み時にパッケージがインストールされていないために`there is no package called`と怒られるのが嫌で、Rのインストール時に[CRAN登録済みの全パッケージをインストールする](http://www.okadajp.org/RWiki/?追加パッケージをなんでもかんでも追加する)、みたいなことをやっているのですが、それ以降に追加登録されたパッケージについては知らないことが多く、時間も経ったのでたくさんのパッケージがインストールされていない状況になってきました。
+
+CRANに登録されたパッケージは、[CRANのウェブページから確認できます](https://cran.r-project.org/web/packages/)。また、更新情報を見やすくまとめてお知らせしてくれる[CRANberries](http://dirk.eddelbuettel.com/cranberries/)も有名です。
+
+CRANberriesではfeedを発行しているのでパッケージの更新・追加の情報を得ることができますが、私は購読していません。せっかくなので本家であるCRANの情報を元にして、パッケージの情報を得たいところです。現状として、何かしらのパッケージが毎日更新されています。なので1日一回追加されたRパッケージについての情報を取得すれば良さそうです。というわけでウェブスクレイピングによって追加登録されたパッケージをGmailで送る、という仕組みを構築します。
+
+まずは現在インストールされているパッケージ数を確認しましょう。
+
+```{r, eval = TRUE}
+# インストールされているパッケージ名のデータフレーム
+installed_pkg <- installed.packages() %>% as.data.frame(stringsAsFactors = FALSE) %$% Package
+# インストール済みのパッケージ数
+length(installed_pkg)
+```
+
+```{r, eval = TRUE, message = FALSE, warning = FALSE}
+library(Hmisc)
+  # %in% の否定演算子 %nin% を有効にするため
+library(rvest)
+library(gmailr)
+  # RからGmail経由でメールを送信するパッケージ
+library(lubridate)
+library(dplyr)
+```
+
+### 未インストールのCRANパッケージ
+
+`available.packages()`関数は、CRANに登録されるRパッケージの一覧を返します。この一覧とインストール済みのパッケージを比較して、どのパッケージがインストールされていないのかを調べます。
+
+```{r, eval = TRUE}
+# CRANに登録されているパッケージの一覧をデータフレームに格納
+df_all_pkg <- available.packages() %>% as.data.frame(stringsAsFactors = FALSE)
+```
+
+`r lubridate::today()`現在、CRANには`r nrow(df_all_pkg)`のパッケージが登録されています。やはりインストールされている数と結構差がありますね。
+
+インストール済みのパッケージに含まれない、CRANに登録されているパッケージの名前のベクトルを作ります。
+
+```{r}
+available_pkg <- df_all_pkg %>% dplyr::filter(Package %nin% installed_pkg) %$% Package
+```
+
+これらを一括でインストールするには次のコードを実行します。これでCRANに登録されていて利用可能な数とインストールされているパッケージ数に差がなくなりました。
+
+```{r, eval = FALSE, echo = TRUE}
+install.packages(pkgs = available_pkg, dependencies = TRUE)
+```
+
+### CRANのぺージからウェブスクレイピング
+
+では以降毎日の更新を監視して追加されたパッケージを通知する、ということをやりましょう。[日付ごとにまとまっているぺージ](https://cran.r-project.org/web/packages/available_packages_by_date.html)をスクレイピングの対象にします。
+
+```{r, eval = TRUE}
+# 登録日（更新含む）の日付順に配列されたテーブルから、パッケージ情報を取得
+  # .dplyr::filter()内で実行日の日付だけを抽出（lubridate::today()）
+df_available_list <- read_html("https://cran.r-project.org/web/packages/available_packages_by_date.html") %>% 
+  html_node(., css = "table") %>% 
+  html_table() %>% 
+  dplyr::filter(Date == today(tzone = "UTC"))
+nrow(df_available_list)
+```
+
+このままではすでにインストールされている、更新されたパッケージも含まれているので、先ほどと同じくインストール済一覧にないものだけに絞ります。
+
+```{r, eval = TRUE}
+# インストールされていない"新規"のパッケージ
+df_new_pkg <- df_available_list %>% dplyr::filter(Package %nin% installed_pkg)
+nrow(df_new_pkg)
+```
+
+```{r, eval = TRUE, results = 'asis'}
+df_new_pkg %>% knitr::kable(format = "markdown")
+```
+
+インストール方法も先と同じです。
+
+```{r, eval = FALSE, echo = TRUE}
+install.packages(pkgs = df_new_pkg$Package, dependencies = TRUE)
+```
+
+#### Gmailで通知する
+
+[**`{gmailr}`**](https://github.com/jimhester/gmailr)というパッケージを利用して、RからGmailでメールを送ります（それだけでも素晴らしい）。利用方法はGitHubのREADMEや[vignettes](https://github.com/jimhester/gmailr/blob/master/vignettes/sending_messages.Rmd)にもありますが、[こちら](https://github.com/jennybc/send-email-with-r)がより親切な感じです。
+
+```{r, eval = FALSE, echo = FALSE}
+gmail_auth(secret_file = "/Users/uri/Downloads/client_secret_1095600700556-gdnkkmcfn5icq6aa9cg1u9o1301m8jj2.apps.googleusercontent.com.json",
+           scope = "compose")
+# gmail_auth("/Users/uri/Dropbox/R/.auth_gmailr.json", scope = "compose")
+```
+
+諸々の設定を済ませてClient IDの記載されたjsonファイルを用意します。*body*部分もあれこれいじれば捗りそうです。
+
+```{r, eval = FALSE, echo = TRUE}
+gmail_auth(secret_file = "<Client ID>.json", scope = "compose")
+
+mime(To      = "<受信先のメールアドレス>",
+     From    = "<送信先のGmailメールアドレス>",
+     attr    = list(content_type = "text/html", charset = "utf-8", encoding = "base64"),
+     Subject = paste0("There are new released R Packages! (", today(tzone = "UTC"), ")"),
+     body    = knitr::kable(df_new_pkg, format = "html")) %>%
+  send_message()
+```
+
+私はあとでチェックするためにEvernoteのメールアドレスに送ることにしました。このような感じでノートが作成されます。
+
+#### 毎朝実行する
+
+一連のRコード（新規追加パッケージのデータフレーム作成、**`{gmailr}`**でのメール送信）を保存しておいて、これを定期的に実行するようにします。以前に書いた
+
+http://uribo.hatenablog.com/entry/2015/09/22/120815
+
+のようにLaunchAgentsを書いても良かったのですが、**一億総自宅サーバー構築なんちゃら**を目指して[scheduleR](https://github.com/Bart6114/scheduleR)を使います。scheduleRについては、また詳しく書く予定ですが、**サーバー経由でRコードやShinyアプリの定期的に実行できる**、というすごい便利なものです。
+
+
+Enjoy `r emoji("+1")`
+
+```{r, eval=FALSE, echo=FALSE}
+mime(To = "u_suika.30700@m.evernote.com",
+     From = "Uryu Shinya <suika1127@gmail.com>",
+     attr = list(content_type = "text/html", charset = "utf-8", encoding = "base64"),
+     Subject = paste0("There are new released R Packages! (", today(tzone = "UTC"), ")"),
+     body = knitr::kable(df_new_pkg, format = "html")) %>%
+  send_message()
+```
+
+```{r, eval=FALSE, echo=FALSE}
+paste(knitr::kable(df_new_pkg, format = "html"), "</br><p>install.packages(pkgs = " , "dependencies = TRUE)</p>")
+df_new_pkg$Package
+c(df_new_pkg$Package)
+```
+
+
+
+-----
+
+
+
+```{r, eval = FALSE, echo=FALSE}
+# NG
+# mime() %>%
+#   to("u_suika.30700@m.evernote.com") %>%
+#   from("suika1127@gmail.com") %>%
+#   subject(paste0("There are new released R Packages! (", today(tzone = "UTC"), ")")) %>%
+#   html_body(knitr::kable(df_new_pkg, format = "html")) %>% send_message()
+
+# mime() %>%
+#   to("u_suika.30700@m.evernote.com") %>%
+#  from("Uryu Shinya <suika1127@gmail.com>") %>%
+#   subject(paste0("There are new released R Packages! (", today(tzone = "UTC"), ")")) %>%
+#   html_body(knitr::kable(df_new_pkg, format = "html")) %>% send_message()
+# mime(To = "u_suika.30700@m.evernote.com", # u_suika.30700@m.evernote.com
+#      From = "Uryu Shinya <suika1127@gmail.com>",
+#      Subject = paste0("There are new released R Packages! (", today(tzone = "UTC"), ")")) %>% 
+#   html_body(knitr::kable(df_new_pkg, format = "html")) %>% 
+#   send_message()
+
+# mime() %>%
+# to("i-suika1127@i.softbank.jp") %>%
+# from("Uryu Shinya <suika1127@gmail.com>") %>%
+# subject(paste0("There are new released R Packages! (", today(tzone = "UTC"), ")")) %>%
+# html_body("<b>test</b>") -> html_msg
+# send_message(html_msg)
+
+
+# mime() %>%
+#   to("u_suika.30700@m.evernote.com") %>%
+#   from("Uryu Shinya <suika1127@gmail.com>") %>%
+#   subject(paste0("There are new released R Packages! (", today(tzone = "UTC"), ")")) %>%
+#   html_body(knitr::kable(df_new_pkg, format = "html")) -> html_msg
+# send_message(html_msg)
+```
+

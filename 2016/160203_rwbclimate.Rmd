@@ -1,0 +1,170 @@
+---
+title: "全球規模での気候データをRからサクッと得たい（可視化もあるよ）" 
+author: "Shinya Uryu"
+date: "2016年2月3日"
+output: 
+  md_document:
+    variant: markdown_github
+---
+
+```{r [SETTING], include = FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = TRUE, 
+                      message = FALSE, error = FALSE, warning = FALSE,
+                      fig.align = "center",
+                      tidy = TRUE,
+                      tidy.opts = list(blank = FALSE, width.cutoff = 40))
+```
+
+```{r, eval = TRUE, include = FALSE}
+library(magrittr)
+```
+
+昨日書いた[記事](http://uribo.hatenablog.com/entry/zuur_et_al_2010_8)で使ったRパッケージの**`{rWBclimate}`**、これは良いものだ、と思えたので別途こうして使い方をメモしておく。
+
+近い将来に予測される大規模な気候変動や乾燥化などを扱った論文が増えているように、気象・気候データは各種の研究やデータ解析において重要となる。局所的なものは自前で気象ステーションとかを設置したりする必要があるのだろうけど、傾向を把握するためにざっくりとした広範囲のデータが欲しい時もある。あるいは日本とか世界全体とかを対象にして議論をしたい時などだ。
+
+**`{rWBclimate}`**ではそんな世界中の気象・気候データをR上で取得し、扱うためのパッケージである。開発は信頼と実績のROpenSciが行っている。世界銀行 http://www.worldbank.org が提供している[開発者向けのウェブAPI](http://data.worldbank.org/developers)の一種である[Climate Data API](http://data.worldbank.org/developers/climate-data-api)を利用することで、気候変動に関する政府間パネルで利用されている全球的な大気循環モデル global circulation model (GCM)の15のシナリオからなるモデリングの値や過去の気象データがサクッと扱えるようになっている。以降の可視化やモデリングはRでやることになるが、こうしたデータが簡単に手に入るのは魅力的だ。
+
+### `r emoji("mortar_board")`GCMsの前知識
+
+ちょっと寄り道して**`{rWBclimate}`**が利用する大気循環モデルの概要について整理しておく。すでに理解のある人はすっ飛ばしてもらって構わない。詳細はGitHubの[READMEにもある](https://github.com/ropensci/rWBclimate#data-classes)。またAPIの仕様は[ドキュメント](http://data.worldbank.org/developers/climate-data-api)を見るのがてっとり早い。
+
+
+* モデルのデータ
+   * 大気循環モデルではそのシナリオ、対象の国や地域ごとに予測値が異なってくる。
+   * データは気温と降水量について
+       * データには月および年ごとの平均値と過去の値から予測されうる異常値がある
+   * A2とB1シナリオ（温室効果ガスなどの排出量を抑えた生態学的に好ましいシナリオ）
+* 時間スケール
+    * 1920年からの過去と2099年までの未来について、20年間ごとに与えられる
+    * 過去 1920-1939, 1940-1959, 1960-1979, 1980-1999
+    * 将来 2020-2039, 2040-2059, 2060-2079, 2080-2099
+* 空間スケール
+    * ２種類の空間スケールを扱う
+    * 国単位... 大文字のアルファベッド３文字からなるISOコード。[ここ](http://unstats.un.org/unsd/methods/m49/m49alpha.htm)を参考にすると良い
+    * 大陸ごとの流域単位
+
+### 使い方
+
+パッケージはRのパッケージ（拡張機能）などを管理するCRANに登録されている。もしインストールされていなければ`install.packages()`関数を使ってローカルパッケージに追加してくれば良い。
+
+```{r}
+# install.packages("rWBclimate")
+library(rWBclimate)
+```
+
+```{r}
+library(ggplot2)
+library(dplyr)
+```
+
+#### モデルデータのダウンロード
+
+`get_model_precip()`と`get_model_temp()`関数によってモデルデータを取得する。引数で対象の地域 *locator*とデータの種類*type*、取得年の範囲を指定する。
+
+```{r}
+# 日本の降水量のデータ（過去と将来について）を得る
+df_jp_precip <- get_model_precip(locator = "JPN",
+                                      type    = "mavg",
+                                      start   = 1980,
+                                      end     = 2020)
+
+# 中身はこんな感じ
+df_jp_precip %>% glimpse()
+df_jp_precip$gcm %>% levels()
+
+# 各種データフレーム操作のためのパッケージによる処理が行える
+#   気象庁の気象研究所によるMRI-CGCM2.3.2シナリオに絞る
+df_jp_precip %<>% dplyr::filter(gcm %in% c("mri_cgcm2_3_2a")) %>% 
+  dplyr::select(-c(locator, gcm))
+
+df_jp_precip %>% ggplot(aes(x = as.factor(month), y = data, 
+                            colour = scenario, group = scenario)) + 
+  geom_point() + 
+  geom_path() + 
+  ylab("Average precipitation in degrees C \n between 2020 and 2040") +
+  xlab("Month") + 
+  theme_bw()
+```
+
+
+#### 過去の気候データ（モデル値）
+
+過去の気候データは、月、年単位でも得ることができる。シナリオによって与えられた値で実際の観測値ではないということに注意が必要。
+
+```{r}
+# 日本、バヌアツ、ドイツの年平均気温を取得
+df_temp <- get_historical_temp(locator = c("JPN", "VUT", "DEU"), 
+                               time_scale = "year") %>% 
+  dplyr::filter(year >= 1980)
+
+
+df_temp %>% ggplot(aes(x = year, y = data, 
+                       group = locator, colour = locator)) +
+  geom_point() + 
+  geom_path() + 
+  ylab("Average historical temperature (cent.)") +
+  xlab("Year") +
+    theme_bw()
+```
+
+#### 地図へのマッピング
+
+**`{rWBclimate}`**では取得した気候データを地図上にマッピングするためのKMLファイルをダウンロードしてRに読み込む関数があり、地図を描くために必要なkmlファイルをダウンロードするためのパスを設定しておく必要がある。保存したくない場合は`tempdir()`関数とかを使うと良いだろう。ここでは`options()`関数によって引数*kmlpath*の値がそれになる。都度入力が面倒な場合は.Rprofileに環境変数として書いておけば良い。環境変数の設定はこちらを参考にして欲しい。
+
+http://uribo.hatenablog.com/entry/2016/01/31/012053
+
+```{r}
+# KMLファイル用のパスを与えておく
+options(kmlpath =  paste(Sys.getenv("HOME"), "Dropbox/maps", "kml", sep = "/"))
+```
+
+```{r}
+# get_ensemble_temp()で気温データを取得する
+#   アジア地域の年平均気温（ちょっと時間がかかる）
+df_asia_precip <- get_ensemble_temp(locator = Asia_country,
+                                    type    = "annualavg",
+                                    start   = 2020,
+                                    end     = 2040) %>% 
+  dplyr::filter(scenario == "b1", fromYear == 2020, percentile == 50)
+```
+
+
+```{r}
+# KMLファイルをRオブジェクトとして読み込む。必要なKMLファイルがあればダウンロードしてくる
+df_asia_contry <- create_map_df(Asia_country)
+df_asia_contry %>% glimpse()
+```
+
+```{r}
+# 地図を描画するためのデータフレームを作成する。引数return_map = TRUEでプロットを行う
+climate_map(map_df     = df_asia_contry, 
+            data_df    = df_asia_precip, 
+            return_map = FALSE) %>% glimpse()
+```
+
+マッピングの自由度を上げるためには**`{ggplot2}`**や関連のパッケージの関数を使ったほうが良い。すんなりとオブジェクトの引き渡しをしてくれる。
+
+```{r}
+climate_map(map_df     = df_asia_contry, 
+            data_df    = df_asia_precip) +
+  ggtitle("Predict Annual Temperature\n between 2020 and 2040") +
+  scale_fill_continuous("Temperature", low = "Yellow", high = "red") +  
+  coord_map(projection = "mercator") +
+  ggthemes::theme_map()
+```
+
+
+### 参考
+
+* [Intro to working with World Bank climate data in R](https://ropensci.org/usecases/rwbclimate_intro.html)
+* [Making maps of climate change](https://ropensci.org/blog/2013/07/19/rWBclimate-maps/)
+
+### 実行環境
+
+```{r, eval = TRUE}
+devtools::session_info() %>% {
+  print(.$platform)
+  .$packages %>% dplyr::filter(`*` == "*") %>% knitr::kable(format = "markdown")
+}
+```

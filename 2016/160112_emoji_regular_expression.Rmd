@@ -1,0 +1,108 @@
+---
+title: "Rで絵文字の正規表現パターン" 
+author: "Shinya Uryu"
+date: "2016年1月12日"
+output: 
+  md_document:
+    variant: markdown_github
+---
+
+```{r [SETTING], include = FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = FALSE, 
+                      message = FALSE, error = FALSE, warning = FALSE,
+                      fig.align = "center")
+```
+
+```{r, eval = FALSE, include = FALSE}
+library(remoji)
+```
+
+少し気になったら深みにはまってしまった。Rで絵文字の正規表現を実行する方法について調べてみたので整理してみる。
+
+`r emoji("accept")` マッチするパターン
+
+```{r, eval = TRUE}
+grep(pattern = "\xF0\x9F\x98\x81", "😁")
+grep(pattern = "\U0001f601", x = "絵文字だよ 😁", value = TRUE)
+```
+
+途中の０は省略しても良い `r emoji("ok_woman")`
+
+```{r, eval = TRUE}
+grepl(pattern = "\U1f601", x = "絵文字だよ 😁")
+```
+
+`enc2utf8()`関数でバイト表記からUnicodeに変換することもできる。
+
+```{r, eval = TRUE}
+enc2utf8("\xF0\x9F\x98\x81")
+grepl(enc2utf8("\xF0\x9F\x98\x81"), "絵文字だよ 😁")
+grep(enc2utf8("\xF0\x9F\x98\x81"), "😁", value = TRUE)
+```
+
+ではすべての絵文字を網羅するための**文字集合**はどう指定すれば良いか `r emoji("question")`
+
+```{r, eval = TRUE}
+grepl("[\U0001F600-\U0001F64F]", c("😁", "🐳", "😄"))
+```
+
+上記の例では顔文字は該当するが鯨の絵文字はマッチしていないので不十分 `r emoji("no_good")`。iPhoneやGitHubを始めとした各種ウェブサービスで使われる（普及している絵文字を含んだ）[Unicode 6.0](http://emojipedia.org/unicode-6.0/)をカバーするには次のような正規表現で抽出する。
+
+```{r, eval = TRUE}
+# v6.0
+grepl("[\U0001F0CF-\U000207BF]", c("😁", "🐳", "😄"))
+```
+
+Unicode 6.0以降に登録された絵文字についても、各バージョンのUnicodeをもとに同様にマッチングできる。以前に http://rpubs.com/uri-sy/emoji_table でUnicodeのバージョンを絵文字のリストを作成したものがあるので、それを参考にしてそれぞれのバージョンで最小値と最大値を指定すれば良い `r emoji("ok_woman")`
+
+```{r, eval = TRUE}
+# v7.0
+grepl("[\U0001F321-\U000203FA]", c("🛳", "🏌", "🌡"))
+# v8.0
+grepl("[\U0001F32D-\U0001F9C0]", c("🤖", "🌭", "🦄"))
+```
+
+というわけで現在登録されているすべての絵文字にマッチする文字集合はこのようになる。（多分きちんとできているはず）
+
+```{r, eval = TRUE}
+grepl("[\U0001F0CF-\U0001F9C0]", c("🛳", "😁", "🐳", "🦄"))
+```
+
+また、絵文字にはより簡易な記号やグリフやらも含まれるのでそれらもマッチに含めるとこのようになる...はず。
+
+```{r, eval = TRUE}
+remoji::emoji(list_emoji(), TRUE) %>% min()
+```
+
+```{r, eval = FALSE}
+# 結果は省略。
+#   すべてTRUEにならないのは同じ絵文字でも複数のunicodeが指定されているものがあるためか
+grepl("[\U000270A-\U0001F9C0]", remoji::emoji(list_emoji(), TRUE))
+```
+
+`as.hexmode()`関数を使って`as.numeric()`で数値化するパターン。
+
+```{r, eval = TRUE}
+as.hexmode("0001F1FC") %>% {
+  print(.)
+  as.numeric(.)
+}
+```
+
+絵文字の挙動は面白い。
+
+```{r}
+# print()では絵文字を出力することはできない
+print("😁")
+
+# message()とcat()関数はコンソール上に絵文字を「絵文字」として出力する
+cat("😁")
+message("😁")
+
+x <- "\xF0\x9F\x98\x81"
+cat(x)
+
+enc2utf8("\U001F32D") %>% cat()
+```
+
+enjoy `r emoji("blush")`

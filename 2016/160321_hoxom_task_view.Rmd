@@ -1,0 +1,104 @@
+---
+title: "hoxom task view （ホクソエム一周年記念）" 
+author: "Shinya Uryu"
+date: "2016年3月13日"
+output: 
+  md_document:
+    variant: markdown_github
+---
+
+```{r [SETTING], include = FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = FALSE, 
+                      message = FALSE, error = FALSE, warning = FALSE,
+                      fig.align = "center",
+                      tidy = TRUE,
+                      tidy.opts = list(blank = FALSE, width.cutoff = 40))
+```
+
+```{r, eval = TRUE, include = FALSE}
+library(magrittr)
+library(remoji)
+```
+
+タイトルの通り、匿名知的集団「ホクソエム」が結成されてから一年経つっぽい（ぽいというのは結成された日付が曖昧だから）。
+
+**よく一年もこのノリを続けてきたな**と思うところもあるが、「ホクソエムの誓い」とか現実でホクソエムに遭遇した体験とか、謎の帰属意識とかあって好きだった。
+
+それを祝う意味で以前記事を書いた（`r emoji("point_down")`）がそれは前座。以前からやろうと思っていた「hoxom task view」を結成一周年記念で作った。納得できていない部分もあるけど、それはそれでまた改善していけば良いだろうということで公開する。そしてこの記事では、hoxom task viewに登録されているパッケージについて、少し説明をしていきたいと思う。
+
+### hoxom task view とは
+
+CRAN task viewというのがあって、そこではさまざまな分野のテーマごとにRのパッケージの解説や特徴について触れられている。**`{ctv}`**パッケージという、CRAN task viewを管理するパッケージもあって、これを使えばテーマごとに登録されているパッケージを一括でインストールすることができたりするので、これからその分野について学んでいきたいとか、どんなパッケージがあるのか知りたい時に便利である。
+
+今回作ったhoxom task viewのテーマは、「匿名知的集団ホクソエムおよびその関係者がGitHubで公開しているパッケージ」である。最初はホクソエムメンバーに限定して作ろうとしたけど、どう考えても関係者を含めた方が魅力的なtask viewになると思ったので含めることにした。登録されているパッケージのほとんどはCRANには登録されておらず、GitHubにパッケージが置かれているので、パッケージをインストールする際はそこからインストールする仕様になっている。
+
+#### 登録されているパッケージ
+
+現在は34パッケージが登録されている。
+
+
+
+#### 一部のパッケージを紹介
+
+hoxom task viewの中から私自身が気に入っているパッケージをいくつか紹介する（本来はhoxom task view自身に書くべきものだと思うが）
+
+##### 画像にテロップを入れる: caption
+
+[**`{caption}`**](https://github.com/dichika/caption)を使えばこんなことができる。クソコラ作成のためにも使える。
+
+http://d.hatena.ne.jp/dichika/20160314/p1
+
+#### Rに癒されたくなったら: yeah
+
+Rとの会話は一方的なものではない。`yeah::doudesuka()`を使えば、**Rが進捗を聞いてくる**ようになるし、`yeah::zoi()`は１日の気力を与えてくれる。。[**`{yeah}`**](https://github.com/dichika/yeah)に救われた人間が何人かいたことは事実である。
+
+http://d.hatena.ne.jp/dichika/20141201/p1
+
+http://d.hatena.ne.jp/dichika/20141229/p1
+
+#### GitHubパッケージのインストールを楽にする: githubinstall
+
+今回のtask viewを作るのに大変役立った。この[**`{githubinstall}`**](https://github.com/hoxo-m/githubinstall)パッケージは、GitHub上で公開されているRパッケージを一覧できる通称"[gepuro task view](http://rpkg.gepuro.net)"にあるパッケージを候補として、該当のパッケージをインストールすることができる。
+
+hoxom task viewはこのgepuro task viewに依存していて、ここに登録されていないとhoxom~の方にも追加されないので注意されたし。
+
+http://qiita.com/hoxo_m/items/f111e73a221dcbc8610a
+
+#### 並列計算を楽に行う: pforeach
+
+[**`{pforeach}`**](https://github.com/hoxo-m/pforeach)パッケージが一番利用頻度が高いかもしれない。それくらいよく使っているし、いつになったらCRANに登録されるのか心待ちにしているものでもある。
+
+http://d.hatena.ne.jp/hoxo_m/20141222/p1
+
+http://www.slideshare.net/hoxo_m/pforeach
+
+#### 政府統計の総合窓口（e-Stat）データの取得: estatapi
+
+たくさんあるが、いかんせん取得・整形が面倒なe-Stat APIが提供するデータをR上で扱いやすい形にする[**`{esatapi}`**](https://github.com/yutannihilation/estatapi)。自分でやるとかなり時間を費やしてしまう処理をパッケージで楽にできるのは大変良い。
+
+http://notchained.hatenablog.com/entry/2015/11/01/084909
+
+http://qiita.com/kazutan/items/9c0b2dd0f055fde45cda
+
+#### すでにCRANに登録されているパッケージ
+
+**`{RODBCDBI}`**、**`{ggfortify}`**および**`{DYM}`**はすでにCRANに登録されている。また一部のパッケージについては昨年末に紹介した。
+
+http://uribo.hatenablog.com/entry/2015/12/02/180004
+
+##### hoxom task viewに登録されていないパッケージ
+
+先にも述べたが、hoxom task viewへの登録はgepuro task viewに登録されていることが条件となっている。理由はよくわからないが、いくつかのRパッケージが漏れているようである。これらは手動で追加するかな...
+
+http://d.hatena.ne.jp/hoxo_m/20141204/p1
+
+http://qiita.com/hoxo_m/items/a05cedac0f117bfa9b43
+
+https://github.com/uribo/lab.note
+
+
+### ２年目のホクソエム
+
+圧倒的交渉力と強靭な肉体を得るための筋トレ集団へ...（これからもホクソエムの活動にご期待ください！）
+
+

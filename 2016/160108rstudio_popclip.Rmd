@@ -1,0 +1,40 @@
+---
+title: "PopClip.appからRStudioでRコードを実行する拡張を書いた" 
+author: "Shinya Uryu"
+date: "2016年1月8日"
+output: 
+  md_document:
+    variant: markdown_github
+---
+
+```{r [SETTING], include = FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = FALSE, 
+                      message = FALSE, error = FALSE, warning = FALSE,
+                      fig.align = "center")
+```
+
+```{r, eval = TRUE, include = FALSE}
+library(remoji)
+```
+
+### `r emoji("tea")` 前置き
+
+[PopClip](https://pilotmoon.com/popclip/)というMac専用の便利なアプリケーションがある。ざっくりどんなものか述べると、選択したテキストを何らかのアクションとして実行するアプリ。わからない英単語を辞書アプリで調べるときとか論文をGoogle Scholarで検索するときによく使っている。
+
+ただでさえ便利なPopClipだが、気に入っている点としてユーザーがお手軽に自家製の拡張を追加できるということがある。以前、**テキストをGUI版のRで実行する拡張**と**DOIが含まれるテキストを選択して該当する論文にリダイレクトする拡張**を書いて、本家にPull Requestを送ったところ、きちんと[マージされて](https://github.com/pilotmoon/PopClip-Extensions/pull/451)DOIの方は誰もが[利用できるようになっている](http://pilotmoon.com/popclip/extensions/)。
+
+でGUI RでPopClipの機能が有効なのだけど、今はほとんどRStudioであれこれをやるからGUI版Rを使う機会は少ない。というわけで去年あたりに挑戦した記憶があるのだけど、なんだかうまくいかなくて失敗していた。そして今日フラフラとネットサーフィンをしていたら ["add applescript support"](https://github.com/rstudio/rstudio/pull/527) というPRを見つけた。表題の通り、Apple ScriptでRStudioの操作をしちゃうぜ、というやつで見事に[11月にマージされている](https://github.com/rstudio/rstudio/commit/4f5a235aa9a3f221bf73db3022f4fb74d0b4fe18)。
+
+### `r emoji("sparkles")` 本題
+
+というわけで<span class = "hlt_bf">PopClip経由でRStudioでコードを実行する拡張を書いた</span>らきちんと動いたのでご報告。基本的にSOとかQiitaとかRPubsとかブログ、メモあるいはSlackでRコードを見て、それをすぐ試してみたい、というときに使うことになると思う。**要はコピペ面倒人向けである。**
+
+こんな感じで動作する（[こちら](http://qiita.com/hoxo_m/items/ba9061ea72784781830d)のページにあるコードを試させてもらう）。RStudioのロゴはガイドラインに引っかかりそうな気がしなくもないのでアイコンは適当に自作。いい感じのアイコンがあったらください。
+
+
+
+めでたい `r emoji("white_flower")`
+
+#### `r emoji("warning")` 注意 `r emoji("construction")`
+
+現在RStudioが出している[最新の安定版](https://www.rstudio.com/products/rstudio/release-notes/)（2015年12月30日リリースのv0.99.491)ではこの機能を試せない。preveiw版でのみ利用できる。そのうち安定版として出るはずなのでそうしたらPopClipのリポジトリにPull requestを出す予定。

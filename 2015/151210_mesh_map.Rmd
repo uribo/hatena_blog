@@ -1,0 +1,210 @@
+---
+title: "Rで地域メッシュを使った地図を描きたい"
+author: "Shinya Uryu"
+date: "2015年12月10日"
+output: 
+  md_document:
+    variant: markdown_github
+---
+
+```{r [SETTING], include = FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = FALSE, 
+                      message = FALSE, error = FALSE, warning = FALSE,
+                      fig.align = "center")
+```
+
+```{r, eval = TRUE, include = FALSE}
+library(remoji)
+```
+
+この記事は[FOSS4G Advent Calendar 2015](https://qiita.com/advent-calendar/2015/foss4g) の日目です。**GISとかFOSS4Gについての知識が限りなく０に近いのですが、普段使っているRでGIS的なことをしてみたい**、という話です。具体的には、<span class = "hlt_bf">地域メッシュコードに基づく地図をRで描いてみる</span>、という話になります。
+
+地域メッシュコードでの地図が描けると、生物の分布図や広範囲での統計データのマッピングの際に便利です。実際に
+
+匿名知的集団ホクソエムの誓いとして、[必要なものがなければ作る](https://twitter.com/dichika/status/667724714442293248)、という言葉がありますので、それに従ってメッシュコードのデータを作成したいと思います。地域メッシュコードには、１次メッシュから順に約1km^2刻みの３次メッシュまでがありますが、順にやっていきます。**間に合わなかったので２次メッシュまででご勘弁ください。後でこっそり追加します**
+
+書いたRのコードは汚いので恥ずかしいため、最後に載せます。結果からご覧ください。
+
+### 国土をカバーするメッシュ（枠）
+
+ただの枠です。このままではよくわかりませんね。
+
+```{r}
+# 枠だけの図（領域外を含む正方形）
+jp_map <- readOGR(dsn              = "/Users/uri/git/r_pkg/jpmesh/inst/jpmesh_1_sq_range.geojson",
+                  layer            = "OGRGeoJSON",
+                  stringsAsFactors = FALSE) %>% 
+  tidy()
+
+ggplot() + 
+  geom_map(data = jp_map, 
+           map  = jp_map,
+           aes(x = long, y = lat, map_id = id), 
+           fill = "white", color = "black",
+           size = 0.5) + 
+  coord_map()
+```
+
+
+### １次メッシュ
+
+先ほどの枠から、１次メッシュの範囲となっている部分のみを選んでいきましょう。 http://www.gsi.go.jp/MAP/HISTORY/5-25-index5-25.html このページに２０万分１地勢図の区画名（及び１次メッシュコードを含んだリンク）がありますので、そこから区画名と１次メッシュコードをスクレイピングします。
+
+先ほどの枠と組み合わせて、２０万分１地勢図に記載があるメッシュのみを抽出すれば、１次メッシュコードの地図が完成です。
+
+```{r}
+jp_map <- readOGR(dsn              = "/Users/uri/git/r_pkg/jpmesh/inst/jpmesh_1.geojson",
+                  layer            = "OGRGeoJSON",
+                  stringsAsFactors = FALSE) %>% 
+  tidy()
+
+ggplot() + 
+  geom_map(data = jp_map, 
+           map  = jp_map,
+           aes(x = long, y = lat, map_id = id), 
+           fill = "white", color = "black",
+           size = 0.5) + 
+  coord_map() +
+  ggthemes::theme_map()
+```
+
+### ２次メッシュ
+
+黒くなっているのはメッシュが集中しているせいなのですが、ちょっとずれています...（おい）。後で直します...。
+
+```{r}
+jp_map <- readOGR(dsn              = "/Users/uri/Desktop/tmp.geojson",
+                  layer            = "OGRGeoJSON",
+                  stringsAsFactors = FALSE) %>% 
+  tidy()
+
+ggplot() + 
+  geom_map(data = jp_map, 
+           map  = jp_map,
+           aes(x = long, y = lat, map_id = id), 
+           fill = "white", color = "black",
+           size = 0.5) + 
+  coord_map() +
+  ggthemes::theme_map()
+```
+
+### ３次メッシュ
+
+計算が終わりませんでした。
+
+### 実際のデータをマッピング
+
+せっかくなので、作成した地図にデータをマッピングしましょう。今回利用させてもらうのは
+
+```{r}
+df_mesh <- read_csv("/Users/uri/git/JapanData/Data/JpAgriCensusMesh/original/Agricultural mesh dataset in Japan2nd.csv")
+
+ggmap <- ggplot() + 
+  geom_map(data = jp_map, 
+           map  = jp_map,
+           aes(x = long, y = lat, map_id = id), 
+           fill = "white", color = "black",
+           size = 0.5) + 
+  coord_map() +
+  ggthemes::theme_map()
+
+ggmap + geom_map(data = df_mesh,
+                 map = jp_map,
+                 aes(fill = total1970, map_id = id)) + scale_fill_viridis(alpha = 0.8)
+
+jp_map + 
+  geom_map(data = df_pref, 
+                  map = jp,
+                  aes(fill = count, map_id = id, stat = "identity")) +
+  scale_fill_viridis(alpha = 0.8)
+```
+
+```{r, eval=TRUE}
+library(celestial)
+library(broom)
+library(rvest)
+library(rgdal)
+library(readr)
+library(geojsonio)
+library(ggplot2)
+library(pforeach) # devtools::install_github("hoxo-m/pforeach")
+library(dplyr)
+```
+
+```{r, eval=TRUE}
+# 緯度経度の範囲
+lon_range <- c(122, 154)
+lat_range <- c(20, 46)
+# １次メッシュの間隔
+(int1_lat  <- dms2deg("+0d40m00.00s", sep = "dms")) # latitude
+(int1_lon <- dms2deg("+1d00m00.00s", sep = "dms")) # longitude
+seq1_lon <- seq(lon_range[1], lon_range[2], int1_lon)
+seq1_lat <- seq(lat_range[1], lat_range[2], int1_lat)
+# # ２次メッシュの間隔
+(int2_lat <- dms2deg("+0d05m00.00s", sep = "dms")) # latitude
+(int2_lon <- dms2deg("+0d07m30.00s", sep = "dms")) # longitude
+seq2_lon <- seq(lon_range[1], lon_range[2] + int2_lon, int2_lon)
+seq2_lat <- seq(lat_range[1], lat_range[2] + int2_lat, int2_lat)
+```
+
+```{r}
+pforeach(i     = seq1_lon,
+         .c    = rbind)(
+           {
+             data_frame(long  =  c(i, i, i + int1_lon, i + int1_lon, i))
+           }) -> df_long
+
+df_tmp <- data_frame(lat = rep(c(seq1_lat[2], seq1_lat[1], seq1_lat[1], seq1_lat[2], seq1_lat[2]), length(seq1_lon))) %>% 
+  bind_cols(df_long)
+
+df_res <- pforeach(i = 1:39, .c = rbind)({
+  dplyr::mutate(df_tmp, 
+                lat = lat + int1_lat * i) %>% 
+    rbind(df_tmp)
+}) %>% dplyr::mutate(group = rep(1:(nrow(.) / 5), each = 5))
+
+df_tmp <- df_res %>% dplyr::group_by(group) %>% 
+  dplyr::summarise(code2     = as.numeric(min(lat) * 1.5),
+                   code4     = min(long) %>% substr(2, 3) %>% as.numeric(),
+                   code_1_20 = paste0(code2, code4))
+
+df_res %<>% inner_join(df_tmp) %>% 
+  dplyr::select(long, lat, code_1_20) %>% 
+  dplyr::rename(group = code_1_20) %>% 
+  dplyr::filter(group <= 6854)
+```
+
+```{r step1, eval = FALSE}
+names_1_20 <- vector()
+code_1_20 <- vector()
+url <- "http://www.gsi.go.jp/MAP/HISTORY/5-25-index5-25.html" %>% read_html()
+html_nodes(url, css = "map area") %>% {
+  names_1_20 <<- html_attr(., "alt") %>% Nippon::kana2roma(.)
+  code_1_20  <<- html_attr(., "href") %>% 
+    sub(pattern = "/MAP/HISTORY/5-25-", replacement = "", x = .) %>% 
+    sub(".html$", "", .)
+}
+
+df_mesh <- data_frame(names_1_20, code_1_20)
+rm(list = grep("20$|url", ls(), value = TRUE))
+
+dplyr::filter(df_res, group %in% df_mesh$code_1_20) %>% 
+  geojson_json(input    = ., 
+             group    = "group", 
+             lat      = "lat", 
+             lon      = "long", 
+             geometry = "polygon") %>%
+  geojson_write(input = .,
+                         file = "../inst/jpmesh_1.geojson", # 
+                         group = "group",
+                        geometry = "polygon")
+```
+
+### リンク
+
+過去の遺産など
+
+* [R - 緯度経度の表記を相互的に変換する - Qiita](http://qiita.com/uri/items/782753eb9113d908b2dc)
+* [RPubs - IKIMONOLOG Species occurrence map](http://rpubs.com/uri-sy/ikilog)
+* [RPubs - TopoJSON map of Japan](http://rpubs.com/uri-sy/japan_geojson_map)
+

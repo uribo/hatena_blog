@@ -1,0 +1,38 @@
+---
+title: "Slack上で行われた投票の開票"
+author: "Shinya Uryu"
+date: "2015年9月1日"
+output: 
+  md_document:
+    variant: markdown_github
+---
+
+```{r, eval = TRUE, include = FALSE}
+library(remoji)
+```
+
+さくっと書いてみた。
+
+Slackでは絵文字を使ってチームメンバーどうしで意見を伝え合うシステムがある。
+
+[722 ways to say “I got your message” | Several People Are Typing](http://slackhq.com/post/123561085920/reactions)
+
+これはいいね `r emoji("+1")` とか良くないね `r emoji("-1")`とか気持ちを表現したり、メンバーに対して意見を求める際に投票してもらうためのツールとなり得る（例えば、今日食べたいものに投票、として、`r emoji("sushi")`, `r emoji("ramen")` `r emoji("rice_ball")`, `r emoji("beer")` とかする。
+
+これが結構楽しくて各地で絵文字による投票を開催している（主に自分。参考... ）
+
+またSlackでは、チャンネルごとに過去のログを記録してくれていて、なんとダウンロード可能。本当はダウンロードまで自動化したかったのだけど、そこは力不足で諦めた。
+
+過去ログファイルをダウンロードしてきたら、投票データの含まれる日付ファイルを引数に与えてあげるだけという手抜き設定。例によってソースはGistにある。以下実行例。
+
+```{r}
+devtools::source_gist("https://gist.github.com/uribo/7b245895e00470b86289")
+slack_vote(path = "/Users/uri/Downloads/Tokyo.R Slack export Aug 25 2015/general/2015-08-19.json") %>% 
+  # せっかくなので絵文字に変換する。
+  dplyr::mutate(name = paste(emoji(name), name, " ")) %>% 
+  knitr::kable()
+```
+
+誰が投票したか、何票入ったか、といった情報が得られる。
+
+ファイルをダウンロードしてくる手間を考慮したら、手打ちでいいのでは...という声が聞こえる。

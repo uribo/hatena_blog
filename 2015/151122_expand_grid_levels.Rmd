@@ -1,0 +1,73 @@
+---
+title: "expand.grid()とdata.frame()では水準の扱い方が異なる"
+author: "Shinya Uryu"
+date: "2015年11月22日"
+output: 
+  md_document:
+    variant: markdown_github
+---
+
+```{r, include=FALSE}
+library(remoji)
+```
+
+ちょっとしたメモ。
+
+`data.frame()`では、変数内の大きさ（ベクトルの長さ）が等しい必要があるが、`expand.grid()`を使うとよしなに要因ごとの組み合わせからなるデータフレームを作成する。
+
+```{r, eval = FALSE}
+age <- seq(from = 20, to = 40, by = 5)
+
+data.frame(性別 = c("男性", "女性"),
+                       年齢 = age)
+# Error in data.frame(性別 = c("男性", "女性"), 年齢 = age) : 
+#   arguments imply differing number of rows: 2, 5
+
+expand.grid(性別 = c("男性", "女性"),
+              年齢 = age)
+#    性別 年齢
+# 1  男性   20
+# 2  女性   20
+# 3  男性   25
+# 4  女性   25
+# ... (省略)
+# 10 女性   40
+```
+
+入力を減らしてデータフレームを作れるので模擬データ等の生成に便利である。
+
+今日作業してたら、この`expand.grid()`の挙動が`data.frame()`と微妙に異なっていることに気がついた。何が違うのかというと、要因クラスの水準の順番である。こんな感じ。
+
+```{r}
+data.frame(性別 = c("男性", "女性"),
+             年齢 = c(26, 24)) %>% .$性別
+
+expand.grid(性別 = c("男性", "女性"),
+             年齢 = c(26, 24)) %>% .$性別
+```
+
+`data.frame()`では、正確に文字の並び（？）で水準が定義されているが、`expand.grid()`では、要因の順序が入力順で定義されてしまう。
+
+理由はよくわからない。R言語の構造上の問題なのかもしれない。
+
+## おまけ
+
+そもそも論として、強制的に文字列が要因クラスになってしまう`data.frame()`の使用はナンセンスな感じなので、`dplyr::data_frame()`を使うのが今時だろう（`data.frame()`で文字を文字列として扱うためにはstringsAsFactors引数でFALSEを指定しておけば良い）。加えて、`expand.grid()`も`tidyr::expand()`を使った方が良いかもしれない。
+
+```{r}
+data.frame(性別 = c("男性", "女性"),
+             年齢 = c(26, 24),
+             stringsAsFactors = FALSE) %>% .$性別
+
+dplyr::data_frame(性別 = c("男性", "女性"),
+                       年齢 = c(26, 24)) %>% .$性別
+
+dplyr::data_frame(性別 = rep(c("男性", "女性"), 3),
+           出身地 = c("北海道", "岡山県", "岡山県", "神奈川県", "福島県", "東京都"),
+           年齢 = purrr::rdunif(n = 6, b = 30, a = 20)) %>% 
+tidyr::expand(性別, 出身地, -年齢)
+```
+
+## 参考
+
+* 改訂2版 R言語逆引きハンドブック 2014. 石田基広 C&R研究所

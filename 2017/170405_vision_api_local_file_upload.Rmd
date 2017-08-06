@@ -1,0 +1,54 @@
+---
+title: "Microsoft Cognitive Service Face APIにローカル上の画像を投げる" 
+author: "Shinya Uryu"
+date: "2017年4月5日"
+output: 
+  md_document:
+    variant: markdown_github
+---
+
+```{r [SETTING], include = FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = FALSE, 
+                      message = FALSE, error = FALSE, warning = FALSE,
+                      fig.align = "center",
+                      tidy = TRUE,
+                      tidy.opts = list(blank = FALSE, width.cutoff = 40))
+```
+
+```{r, eval = TRUE, include = FALSE}
+library(magrittr)
+library(remoji)
+library(pumpkin.seeds)
+```
+
+dichikaさんの[Microsoft Cognitive Serviceを使った記事](http://d.hatena.ne.jp/dichika/20170402/p1)、APIに投げる画像はサーバ上にある必要がある、ということだが、リクエストボディの`Content-Type`で`application/octet-stream`を指定することでローカルファイルをサーバを経由せずに直接投げることができる。
+
+こんな感じでやる。検証用の画像として、件のGlobal Tokyo.R集合写真を使う（メガネのおじさんたちがメガネのお姉さんになってくれやしないか... )
+。`Ocp-Apim-Subscription-Key`に与えるAPIキーは各自が用意したものを使うこと。
+
+```{r, eval = TRUE}
+library(purrr)
+library(httr)
+
+# 対象の画像のパスを指定する
+x <- "~/Desktop/oretachino_globaltokyo_r.jpg" # 幅5000pxに引き伸ばし
+base.url <- "https://westus.api.cognitive.microsoft.com/face/v1.0/detect"
+
+result <- httr::POST(base.url,
+                     body = upload_file(x),
+                     query = list(returnFaceAttributes = "age,gender,headPose,smile,facialHair,glasses,emotion",
+                                  language       = "en"),
+                         httr::add_headers(.headers = c("Content-Type" = "application/octet-stream",
+                                                        "Ocp-Apim-Subscription-Key" = config::get("mcsc_apim_face_key", file = "~/nightley/n_general/config.yml")))) %>% 
+        httr::content()
+```
+
+結果について確認しておくと、メガネ率は少し異なっている。画像のサイズが違うのだろうか。SwimmingGogglesつけてる人誰や...
+
+```{r, eval = TRUE}
+result %>% map("faceAttributes") %>% 
+  map_chr("glasses") %>% 
+  table()
+```
+
+Enjoy!

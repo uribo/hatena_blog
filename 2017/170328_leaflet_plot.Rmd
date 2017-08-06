@@ -1,0 +1,43 @@
+---
+title: "leafletで描画した地図を画像ファイルとして保存する" 
+author: "Shinya Uryu"
+date: "2017年3月28日"
+output: 
+  md_document:
+    variant: markdown_github
+---
+
+```{r [SETTING], include = FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = FALSE, 
+                      message = FALSE, error = FALSE, warning = FALSE,
+                      fig.align = "center",
+                      tidy = TRUE,
+                      tidy.opts = list(blank = FALSE, width.cutoff = 40))
+```
+
+```{r, eval = TRUE, include = FALSE}
+library(magrittr)
+library(remoji)
+library(pumpkin.seeds)
+```
+
+お手軽に地図データを表示するために**`{leaflet}`**を頻繁に利用しているが、出力した地図を画像に保存するにはOSのスクリーンショット機能やアプリケーションを使う必要があって面倒だった。
+
+調べてみると**`{mapview}`**パッケージに**`{leaflet}`**のレンダリング結果を保存できる関数があるそうなのでメモ。
+
+以下のコードで`leaflet()`の実行結果を画像（あるいはHTML）として保存できる。
+
+```{r, eval = FALSE, echo = TRUE}
+library(magrittr)
+library(leaflet)
+library(mapview)
+
+m <- leaflet() %>% addTiles() %>% 
+  addProviderTiles("Stamen.Watercolor") %>% 
+  setView(lng = 135.0, lat = 38.0, zoom = 3)
+mapview::mapshot(m, file = paste0(getwd(), "/map.png"))
+```
+
+当然ながら動かした状態を保存することはできないので、描画される領域は`setView()`やら`fitBounds()`で調整し、ラベルやポップアップの表示が必要であればあらかじめ表示するようにしておく。
+
+Enjoy!

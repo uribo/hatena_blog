@@ -1,0 +1,396 @@
+---
+title: "企業が利用しているサービス・ツールのアソシエーション分析" 
+author: "Shinya Uryu"
+date: "2016年2月21日"
+output: 
+  md_document:
+    variant: markdown_github
+---
+
+```{r [SETTING], include = FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = FALSE, 
+                      message = FALSE, error = FALSE, warning = FALSE,
+                      fig.align = "center",
+                      tidy = TRUE,
+                      tidy.opts = list(blank = FALSE, width.cutoff = 40))
+```
+
+```{r, eval = TRUE, include = FALSE}
+library(remoji)
+library(magrittr)
+```
+
+先日、ビジネスSNSとして有名な[Wantedly](https://www.wantedly.com)が、企業に対して利用しているサービスやツールについての調査を行った結果をcompany toolsとして[公開しました](https://www.wantedly.com/company_tools)。
+
+https://www.wantedly.com/company_tools
+
+このページでは９つのカテゴリーについて、Wantedlyに登録されているすべての企業ではないですが、該当するウェブサービスやアナログなツールを利用している企業の数や評価コメントを見ることができます。
+
+これはこれで大変面白いのですが、いくつか気になったことがあります。それは
+
+1. どういうツールが人気なの？
+2. どういうツールを組み合わせて利用しているの？
+3. 企業の特徴（社員数や事業内容など）との関係はあるの？
+
+ということです。１についてはWantedlyの以下のカテゴリーごとの集計ページをみればわかるのですが、**どうせならRで図示**してみたくなります。また２については「この商品を買った場合はこの商品も買う」といった関連性を調べるための**アソシエーション分析の手法が使える**ような気がします。最後の点については、Wantedlyの募集ページにあるテキストをもとに企業を分類すれば良いかなと思いましたが、社員数とか事業内容のデータが取れそうになかったので保留中です。というわけで１と２についてRでやってみました。
+
+<!-- 続きを読む -->
+
+### 人気のツール・サービスを可視化する
+
+まずはWantedlyで公開されている情報をもとにRで図を描いてみたいと思います。company toolsで設定されている次の９つのカテゴリーについて、各カテゴリーごとに上位10位までの人気のツール・サービスまとめてみます。
+
+* [コミュニケーション](https://www.wantedly.com/company_tools/categories/communication)
+* [情報共有・蓄積](https://www.wantedly.com/company_tools/categories/knowledge)
+* [プロジェクト管理](https://www.wantedly.com/company_tools/categories/project_management)
+* [採用・育成サービス](https://www.wantedly.com/company_tools/categories/human_resource)
+* [営業](https://www.wantedly.com/company_tools/categories/sales)
+* [マーケティング](https://www.wantedly.com/company_tools/categories/marketing)
+* [開発・テクノロジー](https://www.wantedly.com/company_tools/categories/development)
+* [デザイン](https://www.wantedly.com/company_tools/categories/design)
+* [カスタマーサポート](https://www.wantedly.com/company_tools/categories/customer_support)
+
+Rからデータを取得したり図を作成するためのパッケージを読み込んでおきます。
+
+```{r, eval = TRUE}
+library(rvest)
+library(ggplot2)
+library(emoGG)
+library(gridExtra)
+library(viridis)
+library(dplyr)
+# ggplot2の見た目を変更する設定
+quartzFonts(YuGo = quartzFont(rep("YuGo-Medium", 4)))
+theme_set(theme_classic(base_size = 12, base_family = "YuGo"))
+```
+
+```{r, eval = TRUE}
+base.url <- "https://www.wantedly.com/company_tools"
+```
+
+```{r, fig_tmp, eval=FALSE, fig.height = 9}
+base.url <- "https://www.wantedly.com/company_tools"
+df.com <- read_html(paste(base.url, "categories", "communication", sep = "/")) %>% 
+  html_nodes(xpath = sprintf('//*[@id="company-tools"]/div/div[2]/div/div/ul/div/li/div/span/a')) %>% {
+  data_frame(service  = html_nodes(., xpath = 'div') %>% html_text(),
+             count    = html_nodes(., xpath = "h2") %>% html_text() %>% tidyr::extract_numeric(),
+             category = "コミュニケーション") %>% 
+    .[1:10, ]
+  }
+ggplot(df.com, aes(reorder(service, count), count)) + 
+  geom_bar(stat = "identity", aes(fill = count)) +
+  scale_fill_viridis() +
+  geom_emoji(data = data.frame(x = 8:10, y = df.com$count[1:3] %>% sort()), 
+             aes(x = x, y = y),
+             position = position_nudge(y = 10),
+             emoji = "1f451") +
+  guides(fill = FALSE) +
+  xlab("サービス") + ylab("利用している企業数") +
+  ggtitle("人気のコミュニケーションサービス") +
+  theme(axis.text.x = element_text(angle = 40, hjust = 1))
+```
+
+上記のコードをすべてのカテゴリーに対して実行して得た図が以下のものになります。各カテゴリーで上位３種については`r emoji("crown")`冠をつけています（ちょっと文字が潰れてしまっています...）。
+
+SlackやGoogle Analyticsを始め、AWSやGitHubが人気であることがわかりますね。
+
+
+```{r, eval = FALSE, include = FALSE}
+categories <- c("communication", "knowledge", "project_management",
+                "human_resource", "sales", "marketing",
+                "development", "design", "customer_support")
+categories.j <- c("コミュニケーション", "情報共有・蓄積", "プロジェクト管理",
+                  "採用・育成サービス", "営業", "マーケティング",
+                  "開発・テクノロジー", "デザイン", "カスタマーサポート")
+
+library(pforeach)
+library(grid)
+df.category <- npforeach(i = 1:length(categories), .c = rbind)({
+  Sys.sleep(3)
+  read_html(paste(base.url, "categories", categories[i], sep = "/")) %>% 
+    html_nodes(xpath = sprintf('//*[@id="company-tools"]/div/div[2]/div/div/ul/div/li/div/span/a')) %>% {
+      data_frame(service  = html_nodes(., xpath = 'div') %>% html_text(),
+                 count    = html_nodes(., xpath = "h2") %>% html_text() %>% tidyr::extract_numeric(),
+                 category = categories.j[i]) %>% 
+    .[1:10, ]
+    }
+}) %>% na.omit()
+
+p <- ggplot(df.category, aes(reorder(service, count), count)) +
+  xlab(NULL) + ylab(NULL)
+rank.plots <- df.category %>% group_by(category) %>% 
+  do(plots = p %+% . + geom_bar(stat = "identity", aes(fill = count)) +
+       scale_fill_viridis() +
+       geom_emoji(data = data.frame(x = (nrow(.) -2):nrow(.), 
+                                                    y = .$count[1:3] %>% sort()), 
+             aes(x = x, y = y),
+             position = position_nudge(y = max(.$count) / 30),
+             emoji = "1f451") + 
+       guides(fill = FALSE) +
+       ggtitle(.$category)
+)
+```
+
+```{r fig_1, fig.width = 16, fig.height = 12, eval=FALSE}
+grid.arrange(rank.plots$plots[[2]], rank.plots$plots[[7]], 
+             rank.plots$plots[[4]], rank.plots$plots[[8]],
+             ncol = 2,
+             left = grid.text("利用している企業数", gp = gpar(fontfamily = "YuGo"), rot = 90), 
+             bottom = grid.text("サービス", gp = gpar(fontfamily = "YuGo")))
+```
+
+```{r fig_2, fig.width = 16, fig.height = 15, eval=FALSE}
+grid.arrange(rank.plots$plots[[6]], rank.plots$plots[[5]],
+             rank.plots$plots[[9]], rank.plots$plots[[3]],
+             rank.plots$plots[[1]],
+             ncol = 2,
+             left = grid.text("利用している企業数", gp = gpar(fontfamily = "YuGo"), rot = 90), 
+             bottom = grid.text("サービス", gp = gpar(fontfamily = "YuGo")))
+```
+
+### 利用されているサービスの関連を見る
+
+さて続いて２の内容について実行していきます。冒頭でも述べたように、今回のようなデータ形式は企業が利用しているサービスをトランザクションデータとみなしたアソシエーション分析を行うことができそうです。まずは分析に必要なデータを改めて収集するところから始めます。アソシエーション分析の詳細についてはここでは深く触れないので、末尾の参考ページをご覧になることをお勧めします。
+
+#### 対象の企業リストを用意する
+
+もっとも人気があるサービスが、「Google Drive」で263社が利用している、とのことですが、company toolsのページで表示されるのはこれらのうちの一部です。また、ページ読み込みの度に表示される企業が異なるので、すべての企業を対象にはしていません。何回もアクセスしてWantedlyのサーバーに負荷をかけるのも申し訳ないので極力少ないセッションから必要な情報を得るようにします。１度のアクセスで表示された企業を今回の分析の対象とするためにリストを作成します。
+
+```{r, eval = TRUE}
+# 対象の企業リストを用意する
+df.company <- read_html(base.url) %>% 
+  html_nodes(xpath = '//*[@id="company-tools"]/div/div/div/div/ul/div/li/div/div/div[2]/a') %>% {
+    data_frame(url     = html_attr(., name = "href") %>% paste0("https://www.wantedly.com", .),
+               company = html_text(.)) %>% 
+      unique()
+  }
+df.company %>% nrow()
+```
+
+というわけで`r df.company %>% nrow()`の企業が利用しているツール・サービスの結果を分析に利用します。全体の３割くらいなので偏りがあるかもしれません。
+
+#### トランザクションデータの作成と分析の実行
+
+**`{arules}`**パッケージを利用します。
+
+```{r, eval = FALSE}
+library(pforeach)
+library(arules)
+
+df.res <- npforeach(i = 1:nrow(df.company), .c = rbind)({
+  Sys.sleep(3)
+  read_html(df.company$url[i]) %>% html_nodes(xpath = '//*[@id="company-tools-company"]/div/div/div/ul/li/div/a/div') %>% {
+  dplyr::data_frame(id   = i,
+             item = paste0(html_nodes(., "div") %>% html_text(trim = TRUE), "=", html_nodes(., "h3") %>% html_text(trim = TRUE)))
+}
+})
+
+# ツールカテゴリーの日本語を修正
+df.res %<>% dplyr::mutate(
+  item = gsub("コミュニケーションツール", "communication", item),
+  item = gsub("情報共有・蓄積ツール", "knowledge", item),
+  item = gsub("プロジェクト管理ツール", "project_management", item),
+  item = gsub("採用・育成サービス", "human_resource", item),
+  item = gsub("営業ツール", "sales", item),
+  item = gsub("マーケティングツール", "marketing", item),
+  item = gsub("開発・テクノロジーツール", "development", item),
+  item = gsub("デザインツール", "design", item),
+  item = gsub("カスタマーサポートツール", "customer_support", item)
+)
+
+res.trans <- df.res %>% as.data.frame() %$% split(item, id) %>% as(., "transactions")
+```
+
+生成されたトランザクションデータを確認します。
+
+```{r, eval = FALSE}
+res.trans
+## transactions in sparse format with
+##  83 transactions (rows) and
+##  129 items (columns)
+
+# 企業id = 1の内容を表示
+LIST(res.trans[1])
+## $`1`
+##  [1] "communication=Slack"                "design=GIMP"                        "design=Illustrator"                 "design=Inkscape"
+##  [5] "design=Photoshop"                   "design=Pinterest"                   "development=AWS"                    "development=CircleCI"
+##  [9] "development=DeployGate"             "development=GitHub"                 "development=Mackerel"               "development=New Relic"
+## [13] "development=wercker"                "human_resource=Green"               "human_resource=Linkedin"           "human_resource=Wantedly Admin"
+## [17] "knowledge=esa.io"                   "marketing=@press"                   "marketing=Google Analytics"         "marketing=Google Search Console"
+## [21] "marketing=Hootsuite"                "marketing=Mailchimp"                "marketing=Mixpanel"                 "marketing=Optimizely"
+## [25] "marketing=PR TIMES"                 "marketing=Repro"                    "project_management=asana"      "project_management=GitHub"
+## [29] "project_management=pivotal tracker" "project_management=Trello"
+
+# トランザクションデータ全体の要約
+summary(res.trans) %>% .@itemSummary
+# marketing=Google Analytics     knowledge=Google Drive        communication=Slack         design=Illustrator           design=Photoshop                    (Other) 
+#                         50                         48                         46                         44                         44                        892 
+
+# 相対頻度での項目（サービス、ツール）の上位を確認
+itemFrequency(res.trans, type = "absolute") %>% head()
+          # communication=Chatwork         communication=co-meeting             communication=direct communication=Facebook messenger     communication=Google Hangout 
+          #                     29                                1                                1                               20                               25 
+          #  communication=Hipchat 
+          #                      4 
+
+# 各組み合わせの発生する割合について一部を表示
+#   同時に発生することない組み合わせの affinity は 0
+affinity(res.trans)[1:5, 1:5]
+#                                  communication=Chatwork communication=co-meeting communication=direct communication=Facebook messenger communication=Google Hangout
+# communication=Chatwork                        0.0000000                     0.00                 0.00                        0.3243243                    0.2857143
+# communication=co-meeting                      0.0000000                     0.00                 1.00                        0.0500000                    0.0000000
+# communication=direct                          0.0000000                     1.00                 0.00                        0.0500000                    0.0000000
+# communication=Facebook messenger              0.3243243                     0.05                 0.05                        0.0000000                    0.3235294
+# communication=Google Hangout                  0.2857143                     0.00                 0.00                        0.3235294                    0.0000000
+```
+
+```{r, eval=FALSE, include=FALSE}
+itemFrequencyPlot(res.trans, type = "absolute", topN = 8, cex = 0.8)
+```
+
+ではいよいよ`apriori()`関数を使って、Aprioriアルゴリズムによるアソシエーション分析を実行します。Aprioriアルゴリズムはアソシエーション分析の原型として広く利用されるアルゴリズムとなっています。
+
+```{r, eval = FALSE}
+# 支持度 supportと確信度 confidence を調整
+(rules <- res.trans %>% apriori(parameter = list(support = 0.3, confidence = 0.5, target = "rules"),
+                               control    = list(verbose = FALSE)))
+
+# 確信度が高い順に並び替え
+rules <- sort(rules, decreasing = TRUE, by = "confidence")
+```
+
+`apriori()`の結果を出力するには`inspect()`を使います。すでに確信度の高い順に並び替えているので、一部だけを表示するようにします。
+
+```{r, eval = FALSE}
+# apriori()の結果を一部を出力
+#   条件 lhs, 結論 rhs, 支持度, 確信度, リフトの順
+inspect(rules[1:10])
+##    lhs                                                                       rhs                  support   confidence lift    
+## 61 {design=Photoshop,marketing=Google Analytics}                          => {design=Illustrator} 0.3975904 0.9705882  1.830882
+## 58 {design=Photoshop,knowledge=Google Drive}                              => {design=Illustrator} 0.3734940 0.9687500  1.827415
+## 54 {communication=Slack,design=Illustrator}                               => {design=Photoshop}   0.3132530 0.9629630  1.816498
+## 71 {design=Photoshop,knowledge=Google Drive,marketing=Google Analytics}   => {design=Illustrator} 0.3132530 0.9629630  1.816498
+## 57 {design=Illustrator,knowledge=Google Drive}                            => {design=Photoshop}   0.3734940 0.9393939  1.772039
+## 7  {development=GitHub}                                                   => {development=AWS}    0.3493976 0.9354839  1.941129
+## 33 {design=Illustrator}                                                   => {design=Photoshop}   0.4939759 0.9318182  1.757748
+## 34 {design=Photoshop}                                                     => {design=Illustrator} 0.4939759 0.9318182  1.757748
+## 55 {communication=Slack,design=Photoshop}                                 => {design=Illustrator} 0.3132530 0.9285714  1.751623
+## 70 {design=Illustrator,knowledge=Google Drive,marketing=Google Analytics} => {design=Photoshop}   0.3132530 0.9285714  1.751623
+```
+
+次のような出力も可能です。
+
+```{r, eval = FALSE}
+# 条件に一致するルールがいくつあるか
+subset(rules, subset = rhs %in% "design=Illustrator") %>% 
+  inspect()
+##    lhs                                                                     rhs                  support   confidence lift    
+## 61 {design=Photoshop,marketing=Google Analytics}                        => {design=Illustrator} 0.3975904 0.9705882  1.830882
+## 58 {design=Photoshop,knowledge=Google Drive}                            => {design=Illustrator} 0.3734940 0.9687500  1.827415
+## 71 {design=Photoshop,knowledge=Google Drive,marketing=Google Analytics} => {design=Illustrator} 0.3132530 0.9629630  1.816498
+## ...
+## 34                                                   {design=Photoshop} => {design=Illustrator} 0.4939759  0.9318182 1.757748
+## 55                               {communication=Slack,design=Photoshop} => {design=Illustrator} 0.3132530  0.9285714 1.751623
+## 64                  {knowledge=Google Drive,marketing=Google Analytics} => {design=Illustrator} 0.3373494  0.7777778 1.467172
+
+eclat(res.trans, parameter = list(support = 0.6)) %>% 
+  sort(decreasing = TRUE, by = "support") %>% 
+  inspect()
+```
+
+```{r, eval = FALSE}
+# どういうサービスを利用している場合に併せてGitHubも利用しているか
+rules.lhs.gh <- res.trans %>% apriori(
+               appearance = list(default = "lhs",rhs = "development=GitHub"),
+               control = list(verbose = FALSE)) %>% 
+  sort(decreasing = TRUE, by = "support")
+
+inspect(rules.lhs.gh[1:5])
+##    lhs                                                                rhs                  support   confidence lift    
+## 27 {communication=Slack,development=AWS}                           => {development=GitHub} 0.2771084 0.8214286  2.199309
+## 26 {development=AWS,project_management=GitHub}                     => {development=GitHub} 0.2409639 0.8695652  2.328191
+## 73 {communication=Slack,development=AWS,project_management=GitHub} => {development=GitHub} 0.2289157 0.9500000  2.543548
+## 3  {development=New Relic}                                         => {development=GitHub} 0.2048193 0.8947368  2.395586
+## 19 {development=AWS,development=New Relic}                         => {development=GitHub} 0.2048193 0.8947368  2.395586
+```
+
+分析結果を概観するために図示してみましょう。**`{arulesViz}`**パッケージは`arules::apriori()`によって生成されたrulesクラスオブジェクトをプロットするためのパッケージです。
+
+```{r, eval = TRUE}
+library(arulesViz)
+```
+
+```{r fig_3, fig.height = 9, eval=FALSE}
+plot(rules, method = "grouped")
+```
+
+```{r fig_4, eval=FALSE}
+sort(rules, by = "lift") %>% 
+  plot(method = "graph", control = list(type = "items"))
+```
+
+あれこれ考察できそうですが、もうちょっと勉強してから３の内容を含めて再度挑戦したいですね。
+
+### `r emoji("bookmark")` 参考
+
+* Nina Zumel and John Mount (2014). Practical Data Science with R
+* http://www.rdatamining.com/examples/association-rules
+* http://www.listendata.com/2015/12/market-basket-analysis-with-r.html
+* http://www.ekonlab.com/?p=835
+* http://sinhrks.hatenablog.com/entry/2014/12/12/081841
+* http://tjo.hatenablog.com/entry/2014/03/20/190000
+* http://tjo.hatenablog.com/entry/2014/04/10/190203
+* http://bdm.change-jp.com/?p=1341
+
+### `r emoji("computer")` 実行環境
+
+```{r, eval = TRUE}
+devtools::session_info() %>% {
+  print(.$platform)
+  .$packages %>% dplyr::filter(`*` == "*") %>% knitr::kable(format = "markdown")
+}
+```
+
+------
+
+
+```{r defunct, eval=FALSE, echo=FALSE}
+for (i in 1:5) {
+  for (j in 1:2) {
+      u.com %>% html_nodes(xpath = sprintf('//*[@id="company-tools"]/div/div[2]/div/div[3]/ul/div[%i]/li[%i]/div[1]/span/a/div', i, j)) %>%
+    html_text() %>%
+      print()
+  }
+}
+
+library(pforeach)
+npforeach(i = 1:5, .c = rbind)({
+  npforeach(j = 1:2, .c = rbind)({
+      tmp.services <- NULL
+  tmp.count <- NULL
+  u.com %>%
+    html_nodes(xpath = paste0('//*[@id="company-tools"]/div/div[2]/div/div[3]/ul/div[', i, ']/li[', j, ']/div[1]/span/a')) %>% {
+      tmp.services <<- html_nodes(., xpath = 'div') %>% html_text()
+      tmp.count    <<- html_nodes(., xpath = 'h2') %>% html_text() %>% tidyr::extract_numeric()
+    }
+  dplyr::data_frame(a = tmp.services, b = tmp.count)
+  })
+})
+
+res1 <- read_html(df.company$url[1]) %>% html_nodes(xpath = '//*[@id="company-tools-company"]/div/div/div/ul/li/div/a/div') %>% {
+  dplyr::data_frame(id   = 1,
+             item = paste0(html_nodes(., "div") %>% html_text(trim = TRUE), "=", html_nodes(., "h3") %>% html_text(trim = TRUE)))
+}
+
+res2 <- read_html(df.company$url[2]) %>% html_nodes(xpath = '//*[@id="company-tools-company"]/div/div/div/ul/li/div/a/div') %>% {
+  dplyr::data_frame(id   = 2,
+             item = paste0(html_nodes(., "div") %>% html_text(trim = TRUE), "=", html_nodes(., "h3") %>% html_text(trim = TRUE)))
+}
+
+tmp.x <- dplyr::bind_rows(res1, res2) %>% as.data.frame() %$% split(item, id) %>% as(., "transactions")
+# tmp.y <- split(tmp$item, tmp$id) %>% as(., "transactions")
+# all.equal(tmp.x, tmp.y)
+# identical(tmp.x, tmp.y)
+res.trans <- dplyr::bind_rows(res1, res2) %>% as.data.frame() %$% split(item, id) %>% as(., "transactions")
+LIST(res.trans)
+```

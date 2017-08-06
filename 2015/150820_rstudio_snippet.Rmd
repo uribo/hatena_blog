@@ -1,0 +1,23 @@
+---
+title: "RStudioのsnippetを編集する際はタブでインデントしような"
+author: "Shinya Uryu"
+date: "2015年8月20日"
+output: 
+  md_document:
+    variant: markdown_github
+---
+
+こんな話がある（手前味噌）。
+
+[http://qiita.com/uri/items/50b651c2885b421e0ff4:embed:cite]
+
+こんな記事を書いておきながら、定義した俺々スニペットが機能しなくてちょっと困っていた。
+
+スニペットはこのように書く。
+
+```
+snippet lib
+	library(${1:package})
+```
+
+ここで注意なのは、**出力するスニペットを定義するときにタブキーを使ってインデントをする**こと。スペースだけあればいいじゃんとか思って、スペース２つ分とかしてもスニペットは動作しないので注意。

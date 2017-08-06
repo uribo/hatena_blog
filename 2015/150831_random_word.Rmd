@@ -1,0 +1,91 @@
+---
+title: "Rでランダムな文字列や数値を生成する"
+author: "Shinya Uryu"
+date: "2015年8月31日"
+output: 
+  md_document:
+    variant: markdown_github
+---
+
+```{r, include=FALSE}
+library(remoji)
+```
+
+そんなパッケージや関数を調べてみた。
+
+ランダマイゼーションの手法については闇の深さを感じるので、細かいことや背景の処理はそんなに気にしない。とりあえずランダムっぽく生成してくれれば良い、というゆるふわ系記事。
+
+### **`{random}`**
+
+https://cran.rstudio.com/web/packages/random/index.html
+
+まず一つ。パッケージ名からして直球。このパッケージでは、 https://www.random.org/ というWebサービスを利用して、無作為に数値や配列、文字列を生成する。こんな感じ。
+
+```{r}
+library(random)
+# 行列で値が返ってくる。生成する数や範囲、起点とする値など細かく指定できる。
+# ↓失敗例
+randomNumbers(n = 4, min = 1, max = 100, col = 4)
+randomStrings(n          = 5,    len        = 5, 
+              digits     = TRUE, upperalpha = TRUE,
+              loweralpha = TRUE, unique     = TRUE)
+```
+
+あんまり使い過ぎると怒られて、値を返してくれなくなる（泣）
+
+### **`{passwordrandom}`**
+
+https://github.com/hrbrmstr/passwordrandom
+
+我らがキャップことBob Rubis作。こちらは http://www.passwordrandom.com というWebサービスのAPIを利用している。文字列や数値だけでなく、パスワード用の文字と数値を混ぜたものを生成したり、ちょっと高機能。
+
+```{r}
+library(passwordrandom)
+# １文字分のアルファベットを生成。引数fmtにて小文字だけにしたり、大文字と混ぜたりも指定可能
+random_chars(count = 3, fmt = "l")
+random_doubles(count = 5, min = 0, max = 100)
+random_ints(2, 0, 100)
+```
+
+### **`{stringi}`**
+
+https://cran.r-project.org/web/packages/stringi/index.html
+
+文字列操作系のパッケージなので、文字を扱う関数が用意されている。
+
+```{r}
+library(stringi)
+stri_rand_lipsum(1)
+stri_rand_shuffle(str = "apple")
+stri_rand_strings(n = 2, length = 10)
+```
+
+... 素朴な疑問。乱数固定する際に利用する`set.seed()`はこれらの関数に対しても有効なのであろうか。
+
+```{r}
+stri_rand_strings(n = 1, length = 5)
+set.seed(100)
+stri_rand_strings(n = 1, 5)
+set.seed(100)
+stri_rand_strings(n = 1, 5)
+stri_rand_strings(n = 1, 5)
+```
+
+おお。きちんと再現されている。なお上つのパッケージでは無理みたい。
+
+### まとめ
+
+使い勝手や仕様が微妙に異なってくるので、用途や好みに合わせて選べば良い。
+
+| パッケージ | 再現性 | 整数値 | 小数値 | 文字列 |
+|------------|--------|--------|--------|--------|
+| **`{random}`** | `r remoji::emoji(alias = "no_entry")` | `r emoji(alias = "accept")` | `r emoji(alias = "accept")` | `r emoji(alias = "accept")` | 
+| **`{passwordrandom}`** | `r emoji(alias = "no_entry")` | `r emoji(alias = "accept")` | `r emoji(alias = "accept")` | `r emoji(alias = "accept")` |
+| **`{stringi}`** | `r emoji(alias = "accept")` | `r emoji(alias = "no_entry")` | `r emoji(alias = "no_entry")` | `r emoji(alias = "accept")` |
+
+他にもこんな関数があるよ、という情報をお持ちの方はお知らせしてほしい。
+
+### 参考
+
+* [R - ランダムな文字列を発生させる - Qiita](http://qiita.com/antiplastics/items/20087a5e20911be9f185)... コメントをしていたのだけど、すっかり記憶からは消えていた
+* [Rで解析：真のランダムな文字と数値の配列が欲しいなら！「random」パッケージの紹介](http://www.karada-good.net/analyticsr/r-129/)

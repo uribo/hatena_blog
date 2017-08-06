@@ -1,0 +1,107 @@
+---
+title: "今日の作業を可視化する: Macのログをごにょる"
+author: "Shinya Uryu"
+date: "2015年9月22日"
+output: 
+  md_document:
+    variant: markdown_github
+---
+
+大変面白い記事を見つけた。
+
+[http://qiita.com/kuxuxun@github/items/c3b9933b9a786edb0ca4:embed:cite]
+
+管理願望の強い私は、さっそく試してみようと思ったのだけど、なにせGo言語について知識がなかったので挫折した。
+
+というわけでパートナーであるRを使って同様のことを行ってみる。もちろん肝心の可視化もやる。
+
+これらのパッケージを利用するので読み込んでおく。
+
+```{r, message = FALSE}
+library(ggplot2)
+library(gridExtra)
+library(ggalt) # devtools::install_github("hrbrmstr/ggalt")
+library(lubridate)
+library(dplyr)
+library(SUmisc) # 俺々パッケージ。なくても問題ない
+```
+
+まずはログファイルを保存するディレクトリを作成し、`pmset`コマンドでMacの起動時とスリープの情報について得る。
+
+```{r}
+path <- "/Users/uri/Dropbox/log"
+```
+
+```{r, eval = FALSE}
+dir.create(path)
+
+system('pmset -g log|grep -e " Sleep  " -e " Wake  " -e " Start  "', intern = TRUE) %>% 
+  write(paste(path, "df_log.dat", sep = "/"), append = FALSE)
+```
+
+**`{dplyr}`**で扱いやすいデータにする。
+
+```{r}
+df_log <- read.table(paste(path, "df_log.dat", sep = "/"), header = FALSE, fill = TRUE) %>% 
+  dplyr::select(num_range("V", 1:4), -V3) %>% 
+  dplyr::rename(Date = V1, Time = V2, Status = V4) %>% 
+  dplyr::filter(Status %in% c("Sleep", "Start", "Wake")) %>% 
+  dplyr::mutate(Date = lubridate::ymd(Date, tz = "asia/tokyo"), 
+                Time = as.character(Time)) %>% 
+  droplevels()
+```
+
+こんな感じになる。
+
+```{r}
+knitr::kable(head(df_log))
+```
+
+```{r}
+levels(df_log$Status)
+```
+
+起動時とスリープ前後の状態と時間が保存されているが、終了時のログは残っていない。というわけでシャットダウンの時刻については`last`コマンドで取得する
+
+```{r, eval = FALSE}
+system('last shutdown', intern = TRUE) %>% 
+  write(paste(path, "df_log_down.dat", sep = "/"), append = FALSE)
+```
+
+同様にデータをいじくる。
+
+```{r, warning = FALSE}
+df_log_down <- read.table(paste(path, "df_log_down.dat", sep = "/"), 
+                          header = FALSE, fill = TRUE) %>% 
+  dplyr::mutate(Date = lubridate::ymd(stringr::str_c("2015", V3, V4, V5, sep = " "), 
+                                      tz = "asia/tokyo")) %>% 
+  dplyr::mutate(Time = stringr::str_c(V6, "00", sep = ":")) %>% 
+  dplyr::filter(V1 == "shutdown") %>% 
+  dplyr::select(Date, Time, Status = V1)
+```
+
+２つのファイルを結合し、今日の日付のログを取得する。
+
+```{r}
+df_log %<>% rbind(., df_log_down) %>% 
+  dplyr::arrange(Date, Time)
+df_log %<>% dplyr::filter(Date == as.character(lubridate::today() - 1)) %>% 
+  droplevels()
+df_log$Status <- factor(df_log$Status, 
+                        levels = c("shutdown", "Sleep", "Wake", "Start"), 
+                        labels = c("Shutdown", "Sleep", "Wake", "Start"))
+```
+
+最後に**`{ggplot2}`**で視覚化。とりあえずという感じ。`geom_line`だとカクカクした線になるので、キャプテンの新パッケージを使うことにした（いいタイミング！）。
+
+```{r}
+ggplot(df_log, aes(Time, Status, group = Date)) + 
+  geom_point(aes(colour = Status, size = 3)) + 
+  geom_xspline(size = 0.5) +
+  scale_colour_Publication() + 
+  guides(colour = FALSE, size = FALSE)
+```
+
+日付データ~~と恋に落ちる~~の沼に落ちかけたが、なんとかできた。時間があればもうちょいなんとかする。
+
+Enjoy!

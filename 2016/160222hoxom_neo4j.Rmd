@@ -1,0 +1,800 @@
+---
+title: "ホクソエムのつながりをNeo4Jを使って確かめる" 
+author: "Shinya Uryu"
+date: "2016年2月22日"
+output: 
+  md_document:
+    variant: markdown_github
+---
+
+```{r [SETTING], include = FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = FALSE, 
+                      message = FALSE, error = FALSE, warning = FALSE,
+                      fig.align = "center",
+                      tidy = TRUE,
+                      tidy.opts = list(blank = FALSE, width.cutoff = 40))
+```
+
+```{r, eval = TRUE, include = FALSE}
+library(remoji)
+```
+
+先日、[Neo4J](http://neo4j.com)というオープンソースで開発されるグラフデータベースの存在について知りました。恥ずかしながら、グラフデータベース？なにそれ美味しいの？という知識しかありませんでしたが、どうやらNoSQL（リレーショナルデータベースだけがデータベースではない）の流れを組んで誕生したものらしいです。グラフデータベースは、表形式で表現されるリレーショナルデータベースに対して、データ間の関係性を表現するのに向いています。
+
+気になるものがあるとすぐに**Rパッケージを探し出してしまう性分**なので調べてみると、すぐに [**`{RNeo4j}`**](https://github.com/nicolewhite/RNeo4j)というパッケージが見つかりました。というわけで<span class = "hlt_bf">この`{RNeo4j}`パッケージを使ってNeo4Jの扱いについて慣れていこうというメモ</span>です。
+
+今回は適当な例として**来月に結成１周年を迎える匿名知的集団「ホクソエム」のメンバー間のTwitter上でのフォロー状況について整理してみる**ことにします。
+
+
+### `r emoji("hammer")` データの用意
+
+#### ホクソエムメンバーデータの取得
+
+「鍵付きアカウント」を除いたメンバーのデータを取得します。ホクソエムメンバーについては https://twitter.com/teramonagi/lists/list/members にまとめてあるので、こちらのリストに登録されているユーザー名を**`{rvest}`**パッケージを使ってスクレイピングしてきます。その後、各メンバーの詳細な情報を**`{twitteR}`**で求めます。
+
+```{r, eval = TRUE}
+library(magrittr)
+library(rvest)
+library(twitteR)
+library(dplyr)
+```
+
+```{r, eval = TRUE}
+df.hoxom <- read_html("https://twitter.com/teramonagi/lists/list/members") %>% 
+  html_nodes(xpath = '//div/div[3]/div/div/a/span') %>% html_text() %>% 
+  grep("非公開ツイート", x = ., value = TRUE, invert = TRUE) %>% 
+  gsub("@", "", .) %>% 
+  sort() %>% 
+  as.data.frame(stringsAsFactors = FALSE)
+
+colnames(df.hoxom) <- "screenName"
+```
+
+```{r, eval=TRUE, echo=FALSE}
+df.hoxom %<>% dplyr::filter(screenName != "shima_x")
+```
+
+```{r, eval=TRUE, echo=TRUE}
+setup_twitter_oauth(consumer_key = Sys.getenv("TWITTER_KEY"), consumer_secret = Sys.getenv("TWITTER_SECRET"))
+```
+
+```{r, eval = TRUE}
+info.hoxom <- df.hoxom %>% group_by(screenName) %>% 
+  do(user = getUser(.) %>% {
+    data_frame(screenName  = screenName(.),
+               created     = created(.),
+               description = description(.))
+})
+```
+
+`r df.hoxom %>% nrow()`名分のデータを取得しました。各ユーザーのデータは次のようになっています。
+
+```{r, eval = TRUE}
+info.hoxom$user[[18]]
+```
+
+#### メンバー間のフォロー関係を取得
+
+ユーザーのフォローリストを取得して、操作しやすいようにリストからデータフレームに変換したものから必要な列だけを選択しホクソエムメンバーのみを抽出します。一度に実行するとAPIの利用制限に引っかかるので分割して実行するようにします。
+
+```{r, eval = FALSE, echo = TRUE}
+hoxom.flw1 <- df.hoxom %>% 
+  tbl_df() %>% 
+  .[1:(nrow(.) / 2), ] %>% 
+  group_by(screenName) %>% 
+  do(res = getUser(.)$getFriends() %>% 
+       twListToDF() %>%
+       dplyr::select(screenName) %>% 
+       dplyr::filter(screenName %in% df.hoxom$screenName))
+
+hoxom.flw2 <- df.hoxom %>% 
+  tbl_df() %>% 
+  .[(nrow(.) / 2):nrow(.) + 1, ] %>% 
+  group_by(screenName) %>% 
+  do(res = getUser(.)$getFriends() %>% 
+       twListToDF() %>%
+       dplyr::select(screenName) %>% 
+       dplyr::filter(screenName %in% df.hoxom$screenName))
+```
+
+この情報がノード間の関係を示すものになります。
+
+### ノードと関係の構築
+
+本題の**`{RNeo4j}`**パッケージを利用します。あらかじめNeo4Jを起動しておきます。
+
+```{r, eval = TRUE}
+library(RNeo4j)
+```
+
+```{r, eval = TRUE, echo = FALSE}
+graph <- startGraph("http://localhost:7474/db/data/", username = "neo4j", password = "watermelon27")
+```
+
+```{r, eval = FALSE, echo = TRUE}
+# Neo4Jへの接続。ユーザー名とパスワードは適宜変更
+graph <- startGraph("http://localhost:7474/db/data/", username = "<username>", password = "<PW>")
+```
+
+```{r, eval = TRUE}
+graph %>% class()
+```
+
+こちらの`r graph %>% class()`クラスオブジェクトに最初に取得したホクソエムデータを元にノードを作成し、メンバー間のフォロー状況を関係に現していきます。**`{RNeo4j}`**では、`createNode()`と`createRel()`によって簡単にRからノードの操作を行えます。
+
+
+```{r, eval = FALSE, echo = TRUE}
+u_ribo <- createNode(graph, .label = "Member", 
+                       name    = info.hoxom$user[[18]]$screenName, 
+                       role    = "清掃屋", 
+                       created = info.hoxom$user[[18]]$created %>% as.character())
+u_ribo
+## < Node > 
+## Member
+## 
+## $role
+## [1] "清掃屋"
+## 
+## $created
+## [1] 2009-03-11 22:40:25
+## 
+## $name
+## [1] "u_ribo"
+```
+
+ノードがもつ属性は`list()`を使って渡すこともできます。
+
+```{r, eval = FALSE, echo = TRUE}
+hoxo_m <- createNode(graph, .label = "Member", 
+                       list(name    = info.hoxom$user[[7]]$screenName, 
+                            role    = "Qiita",
+                            created = info.hoxom$user[[7]]$created %>% as.character()))
+```
+
+このようにして全員分のノードを作成します。
+
+```{r, eval=FALSE, echo=FALSE}
+zashiki <- createNode(graph, .label = "Member", 
+                       list(name = info.hoxom$user[[1]]$screenName, 
+                            role = NA,
+                            created = info.hoxom$user[[1]]$created %>% as.character()))
+
+aich_08_ <- createNode(graph, .label = "Member", 
+                       name    = info.hoxom$user[[2]]$screenName, 
+                       role    = "ピンク", 
+                       created = info.hoxom$user[[2]]$created %>% as.character())
+
+berobero11 <- createNode(graph, .label = "Member", 
+                       name    = info.hoxom$user[[3]]$screenName, 
+                       role    = NA, 
+                       created = info.hoxom$user[[3]]$created %>% as.character())
+
+dichika <- createNode(graph, .label = "Member", 
+                       name    = info.hoxom$user[[4]]$screenName, 
+                       role    = NA, 
+                       created = info.hoxom$user[[4]]$created %>% as.character())
+
+gg_hatano <- createNode(graph, .label = "Member", 
+                       name    = info.hoxom$user[[5]]$screenName, 
+                       role    = NA, 
+                       created = info.hoxom$user[[5]]$created %>% as.character())
+
+horihorio <- createNode(graph, .label = "Member", 
+                       name    = info.hoxom$user[[6]]$screenName, 
+                       role    = "グリーン", 
+                       created = info.hoxom$user[[6]]$created %>% as.character())
+
+millionsmile <- createNode(graph, .label = "Member", 
+                       name    = info.hoxom$user[[8]]$screenName, 
+                       role    = NA, 
+                       created = info.hoxom$user[[8]]$created %>% as.character())
+
+motivic_ <- createNode(graph, .label = "Member", 
+                       name    = info.hoxom$user[[9]]$screenName, 
+                       role    = "ゆるふわ", 
+                       created = info.hoxom$user[[9]]$created %>% as.character())
+
+piroyoung <- createNode(graph, .label = "Member", 
+                       name    = info.hoxom$user[[10]]$screenName, 
+                       role    = NA, 
+                       created = info.hoxom$user[[10]]$created %>% as.character())
+
+Prunus1350 <- createNode(graph, .label = "Member", 
+                       name    = info.hoxom$user[[11]]$screenName, 
+                       role    = NA, 
+                       created = info.hoxom$user[[11]]$created %>% as.character())
+
+R_Linux <- createNode(graph, .label = "Member", 
+                       name    = info.hoxom$user[[12]]$screenName, 
+                       role    = NA, 
+                       created = info.hoxom$user[[12]]$created %>% as.character())
+
+sfchaos <- createNode(graph, .label = "Member", 
+                       name    = info.hoxom$user[[13]]$screenName, 
+                       role    = NA, 
+                       created = info.hoxom$user[[13]]$created %>% as.character())
+
+siero5335 <- createNode(graph, .label = "Member", 
+                       name    = info.hoxom$user[[14]]$screenName, 
+                       role    = NA, 
+                       created = info.hoxom$user[[14]]$created %>% as.character())
+
+soultoru <- createNode(graph, .label = "Member", 
+                       name    = info.hoxom$user[[15]]$screenName, 
+                       role    = NA, 
+                       created = info.hoxom$user[[15]]$created %>% as.character())
+
+teramonagi <- createNode(graph, .label = "Member", 
+                       name    = info.hoxom$user[[16]]$screenName, 
+                       role    = "タワーマンション在住希望", 
+                       created = info.hoxom$user[[16]]$created %>% as.character())
+
+tetsuroito <- createNode(graph, .label = "Member", 
+                       name    = info.hoxom$user[[17]]$screenName, 
+                       role    = NA, 
+                       created = info.hoxom$user[[17]]$created %>% as.character())
+
+yamano357 <- createNode(graph, .label = "Member", 
+                       name    = info.hoxom$user[[19]]$screenName, 
+                       role    = NA, 
+                       created = info.hoxom$user[[19]]$created %>% as.character())
+```
+
+次にノード間の関係を与えます。今回は、各メンバー（ノード）に対してフォローしている場合に値１を与えるようにします。例えば、私（u\_irbo）はホクソエムの親分（hoxo_m）をフォローしているので*weight* = 1とします。その関係はFOLLOWです。同様の処理を全メンバーについて行っていきます。
+
+```{r, eval=FALSE, echo = TRUE}
+createRel(u_ribo, "FOLLOW", hoxo_m, weight = 1)
+# < Relationship > 
+# FOLLOW
+# 
+# $weight
+# [1] 1
+```
+
+ユーザー名とフォロー状況については先に取得したデータを参照します。
+
+```{r, eval = FALSE, echo = TRUE}
+# 対象のユーザー
+hoxom.flw2$screenName[8]
+## "u_ribo"
+## フォローしているユーザー名
+## hoxom.flw2$res[[8]]$screenName
+```
+
+
+```{r, eval=FALSE, echo=FALSE}
+info.hoxom$user %>% map_chr("screenName")
+
+createRel(u_ribo, "FOLLOW", zashiki, weight = 1)
+createRel(u_ribo, "FOLLOW", aich_08_, weight = 1)
+createRel(u_ribo, "FOLLOW", berobero11, weight = 1)
+createRel(u_ribo, "FOLLOW", soultoru, weight = 1)
+createRel(u_ribo, "FOLLOW", sfchaos, weight = 1)
+createRel(u_ribo, "FOLLOW", motivic_, weight = 1)
+createRel(u_ribo, "FOLLOW", horihorio, weight = 1)
+createRel(u_ribo, "FOLLOW", tetsuroito, weight = 1)
+createRel(u_ribo, "FOLLOW", yamano357, weight = 1)
+createRel(u_ribo, "FOLLOW", siero5335, weight = 1)
+createRel(u_ribo, "FOLLOW", piroyoung, weight = 1)
+createRel(u_ribo, "FOLLOW", Prunus1350, weight = 1)
+createRel(u_ribo, "FOLLOW", teramonagi, weight = 1)
+createRel(u_ribo, "FOLLOW", dichika, weight = 1)
+createRel(u_ribo, "FOLLOW", gg_hatano, weight = 1)
+# createRel(u_ribo, "FOLLOW", hoxo_m, weight = 1)
+createRel(u_ribo, "FOLLOW", R_Linux, weight = 1)
+
+
+hoxom.flw1$res[[7]]$screenName
+createRel(hoxo_m, "FOLLOW", aich_08_, weight = 1)
+createRel(hoxo_m, "FOLLOW", R_Linux, weight = 1)
+# createRel(hoxo_m, "FOLLOW", u_ribo, weight = 1)
+createRel(hoxo_m, "FOLLOW", motivic_, weight = 1)
+createRel(hoxo_m, "FOLLOW", soultoru, weight = 1)
+createRel(hoxo_m, "FOLLOW", siero5335, weight = 1)
+createRel(hoxo_m, "FOLLOW", piroyoung, weight = 1)
+createRel(hoxo_m, "FOLLOW", yamano357, weight = 1)
+createRel(hoxo_m, "FOLLOW", gg_hatano, weight = 1)
+createRel(hoxo_m, "FOLLOW", tetsuroito, weight = 1)
+createRel(hoxo_m, "FOLLOW", horihorio, weight = 1)
+createRel(hoxo_m, "FOLLOW", Prunus1350, weight = 1)
+createRel(hoxo_m, "FOLLOW", dichika, weight = 1)
+createRel(hoxo_m, "FOLLOW", berobero11, weight = 1)
+createRel(hoxo_m, "FOLLOW", teramonagi, weight = 1)
+createRel(hoxo_m, "FOLLOW", sfchaos, weight = 1)
+
+hoxom.flw1$screenName[1]
+hoxom.flw1$res[[1]]$screenName
+createRel(zashiki, "FOLLOW", soultoru, weight = 1)
+createRel(zashiki, "FOLLOW", R_Linux, weight = 1)
+createRel(zashiki, "FOLLOW", aich_08_, weight = 1)
+createRel(zashiki, "FOLLOW", piroyoung, weight = 1)
+createRel(zashiki, "FOLLOW", Prunus1350, weight = 1)
+createRel(zashiki, "FOLLOW", teramonagi, weight = 1)
+createRel(zashiki, "FOLLOW", siero5335, weight = 1)
+createRel(zashiki, "FOLLOW", u_ribo, weight = 1)
+createRel(zashiki, "FOLLOW", berobero11, weight = 1)
+
+hoxom.flw1$screenName[2]
+hoxom.flw1$res[[2]]$screenName
+#  [1] "millionsmile" "R_Linux"      "_zashiki"     "u_ribo"       "motivic_"     "Prunus1350"   "yamano357"    "sfchaos"      "soultoru"     "dichika"      "tetsuroito"  
+# [12] "siero5335"    "piroyoung"    "teramonagi"   "gg_hatano"    "horihorio"    "hoxo_m"       "berobero11
+createRel(aich_08_, "FOLLOW", millionsmile, weight = 1)
+createRel(aich_08_, "FOLLOW", R_Linux, weight = 1)
+createRel(aich_08_, "FOLLOW", zashiki, weight = 1)
+createRel(aich_08_, "FOLLOW", u_ribo, weight = 1)
+createRel(aich_08_, "FOLLOW", motivic_, weight = 1)
+createRel(aich_08_, "FOLLOW", Prunus1350, weight = 1)
+createRel(aich_08_, "FOLLOW", yamano357, weight = 1)
+createRel(aich_08_, "FOLLOW", sfchaos, weight = 1)
+createRel(aich_08_, "FOLLOW", soultoru, weight = 1)
+createRel(aich_08_, "FOLLOW", dichika, weight = 1)
+createRel(aich_08_, "FOLLOW", tetsuroito, weight = 1)
+createRel(aich_08_, "FOLLOW", siero5335, weight = 1)
+createRel(aich_08_, "FOLLOW", piroyoung, weight = 1)
+createRel(aich_08_, "FOLLOW", teramonagi, weight = 1)
+createRel(aich_08_, "FOLLOW", gg_hatano, weight = 1)
+createRel(aich_08_, "FOLLOW", horihorio, weight = 1)
+createRel(aich_08_, "FOLLOW", hoxo_m, weight = 1)
+createRel(aich_08_, "FOLLOW", berobero11, weight = 1)
+
+hoxom.flw1$screenName[3]
+hoxom.flw1$res[[3]]$screenName
+#  [1] "u_ribo"     "gg_hatano"  "piroyoung"  "yamano357"  "aich_08_"   "siero5335"  "tetsuroito" "R_Linux"    "horihorio"  "dichika"    "Prunus1350" "soultoru"  
+# [13] "sfchaos"    "motivic_"   "hoxo_m"     "teramonagi"
+createRel(berobero11, "FOLLOW", u_ribo, weight = 1)
+createRel(berobero11, "FOLLOW", gg_hatano, weight = 1)
+createRel(berobero11, "FOLLOW", piroyoung, weight = 1)
+createRel(berobero11, "FOLLOW", yamano357, weight = 1)
+createRel(berobero11, "FOLLOW", aich_08_, weight = 1)
+createRel(berobero11, "FOLLOW", siero5335, weight = 1)
+createRel(berobero11, "FOLLOW", tetsuroito, weight = 1)
+createRel(berobero11, "FOLLOW", R_Linux, weight = 1)
+createRel(berobero11, "FOLLOW", horihorio, weight = 1)
+createRel(berobero11, "FOLLOW", horihorio, weight = 1)
+createRel(berobero11, "FOLLOW", Prunus1350, weight = 1)
+createRel(berobero11, "FOLLOW", soultoru, weight = 1)
+createRel(berobero11, "FOLLOW", sfchaos, weight = 1)
+createRel(berobero11, "FOLLOW", motivic_, weight = 1)
+createRel(berobero11, "FOLLOW", hoxo_m, weight = 1)
+createRel(berobero11, "FOLLOW", teramonagi, weight = 1)
+
+hoxom.flw1$screenName[4]
+hoxom.flw1$res[[4]]$screenName
+#  [1] "u_ribo"       "yamano357"    "aich_08_"     "siero5335"    "piroyoung"    "gg_hatano"    "hoxo_m"       "berobero11"   "soultoru"     "motivic_"     "horihorio"   
+# [12] "Prunus1350"   "millionsmile" "tetsuroito"   "sfchaos"      "teramonagi"   "R_Linux"     
+createRel(dichika, "FOLLOW", u_ribo, weight = 1)
+createRel(dichika, "FOLLOW", yamano357, weight = 1)
+createRel(dichika, "FOLLOW", aich_08_, weight = 1)
+createRel(dichika, "FOLLOW", siero5335, weight = 1)
+createRel(dichika, "FOLLOW", piroyoung, weight = 1)
+createRel(dichika, "FOLLOW", gg_hatano, weight = 1)
+createRel(dichika, "FOLLOW", hoxo_m, weight = 1)
+createRel(dichika, "FOLLOW", berobero11, weight = 1)
+createRel(dichika, "FOLLOW", soultoru, weight = 1)
+createRel(dichika, "FOLLOW", motivic_, weight = 1)
+createRel(dichika, "FOLLOW", horihorio, weight = 1)
+createRel(dichika, "FOLLOW", Prunus1350, weight = 1)
+createRel(dichika, "FOLLOW", millionsmile, weight = 1)
+createRel(dichika, "FOLLOW", tetsuroito, weight = 1)
+createRel(dichika, "FOLLOW", sfchaos, weight = 1)
+createRel(dichika, "FOLLOW", teramonagi, weight = 1)
+createRel(dichika, "FOLLOW", R_Linux, weight = 1)
+
+hoxom.flw1$screenName[5]
+hoxom.flw1$res[[5]]$screenName
+# [1] "_zashiki"     "soultoru"     "horihorio"    "piroyoung"    "motivic_"     "u_ribo"       "siero5335"    "R_Linux"      "yamano357"    "aich_08_"     "hoxo_m"      
+# [12] "millionsmile" "Prunus1350"   "tetsuroito"   "sfchaos"      "berobero11"   "dichika"      "teramonagi"  
+createRel(gg_hatano, "FOLLOW", zashiki, weight = 1)
+createRel(gg_hatano, "FOLLOW", soultoru, weight = 1)
+createRel(gg_hatano, "FOLLOW", horihorio, weight = 1)
+createRel(gg_hatano, "FOLLOW", piroyoung, weight = 1)
+createRel(gg_hatano, "FOLLOW", motivic_, weight = 1)
+createRel(gg_hatano, "FOLLOW", u_ribo, weight = 1)
+createRel(gg_hatano, "FOLLOW", siero5335, weight = 1)
+createRel(gg_hatano, "FOLLOW", R_Linux, weight = 1)
+createRel(gg_hatano, "FOLLOW", yamano357, weight = 1)
+createRel(gg_hatano, "FOLLOW", aich_08_, weight = 1)
+createRel(gg_hatano, "FOLLOW", hoxo_m, weight = 1)
+createRel(gg_hatano, "FOLLOW", millionsmile, weight = 1)
+createRel(gg_hatano, "FOLLOW", Prunus1350, weight = 1)
+createRel(gg_hatano, "FOLLOW", tetsuroito, weight = 1)
+createRel(gg_hatano, "FOLLOW", sfchaos, weight = 1)
+createRel(gg_hatano, "FOLLOW", berobero11, weight = 1)
+createRel(gg_hatano, "FOLLOW", dichika, weight = 1)
+createRel(gg_hatano, "FOLLOW", teramonagi, weight = 1)
+
+hoxom.flw1$screenName[6]
+hoxom.flw1$res[[6]]$screenName
+createRel(horihorio, "FOLLOW", dichika, weight = 1)
+createRel(horihorio, "FOLLOW", gg_hatano, weight = 1)
+createRel(horihorio, "FOLLOW", u_ribo, weight = 1)
+createRel(horihorio, "FOLLOW", yamano357, weight = 1)
+createRel(horihorio, "FOLLOW", aich_08_, weight = 1)
+createRel(horihorio, "FOLLOW", siero5335, weight = 1)
+createRel(horihorio, "FOLLOW", soultoru, weight = 1)
+createRel(horihorio, "FOLLOW", piroyoung, weight = 1)
+createRel(horihorio, "FOLLOW", berobero11, weight = 1)
+createRel(horihorio, "FOLLOW", hoxo_m, weight = 1)
+createRel(horihorio, "FOLLOW", motivic_, weight = 1)
+createRel(horihorio, "FOLLOW", Prunus1350, weight = 1)
+createRel(horihorio, "FOLLOW", sfchaos, weight = 1)
+createRel(horihorio, "FOLLOW", tetsuroito, weight = 1)
+createRel(horihorio, "FOLLOW", millionsmile, weight = 1)
+createRel(horihorio, "FOLLOW", teramonagi, weight = 1)
+
+# hoxom.flw1$screenName[7]
+# hoxom.flw1$res[[7]]$screenName
+
+hoxom.flw1$screenName[8]
+hoxom.flw1$res[[8]]$screenName
+# [1] "siero5335"  "piroyoung"  "soultoru"   "berobero11" "Prunus1350" "sfchaos"    "horihorio"  "tetsuroito" "teramonagi" "dichika"
+createRel(millionsmile, "FOLLOW", siero5335, weight = 1)
+createRel(millionsmile, "FOLLOW", piroyoung, weight = 1)
+createRel(millionsmile, "FOLLOW", soultoru, weight = 1)
+createRel(millionsmile, "FOLLOW", berobero11, weight = 1)
+createRel(millionsmile, "FOLLOW", Prunus1350, weight = 1)
+createRel(millionsmile, "FOLLOW", sfchaos, weight = 1)
+createRel(millionsmile, "FOLLOW", horihorio, weight = 1)
+createRel(millionsmile, "FOLLOW", tetsuroito, weight = 1)
+createRel(millionsmile, "FOLLOW", teramonagi, weight = 1)
+createRel(millionsmile, "FOLLOW", dichika, weight = 1)
+
+hoxom.flw1$screenName[9]
+hoxom.flw1$res[[9]]$screenName
+# [1] "R_Linux"      "u_ribo"       "aich_08_"     "piroyoung"    "siero5335"    "hoxo_m"       "yamano357"    "gg_hatano"    "horihorio"    "berobero11"   "tetsuroito"  
+# [12] "dichika"      "sfchaos"      "Prunus1350"   "teramonagi"   "millionsmile"
+createRel(motivic_, "FOLLOW", R_Linux, weight = 1)
+createRel(motivic_, "FOLLOW", u_ribo, weight = 1)
+createRel(motivic_, "FOLLOW", aich_08_, weight = 1)
+createRel(motivic_, "FOLLOW", piroyoung, weight = 1)
+createRel(motivic_, "FOLLOW", siero5335, weight = 1)
+createRel(motivic_, "FOLLOW", hoxo_m, weight = 1)
+createRel(motivic_, "FOLLOW", yamano357, weight = 1)
+createRel(motivic_, "FOLLOW", gg_hatano, weight = 1)
+createRel(motivic_, "FOLLOW", horihorio, weight = 1)
+createRel(motivic_, "FOLLOW", berobero11, weight = 1)
+createRel(motivic_, "FOLLOW", tetsuroito, weight = 1)
+createRel(motivic_, "FOLLOW", dichika, weight = 1)
+createRel(motivic_, "FOLLOW", Prunus1350, weight = 1)
+createRel(motivic_, "FOLLOW", teramonagi, weight = 1)
+createRel(motivic_, "FOLLOW", millionsmile, weight = 1)
+```
+
+```{r, eval=FALSE, echo=FALSE}
+hoxom.flw2$screenName[1]
+hoxom.flw2$res[[1]]$screenName
+# [1] "R_Linux"      "soultoru"     "u_ribo"       "_zashiki"     "millionsmile" "Prunus1350"   "horihorio"    "sfchaos"      "yamano357"    "gg_hatano"    "motivic_"    
+# [12] "aich_08_"     "hoxo_m"       "teramonagi"   "dichika"      "tetsuroito"   "siero5335"    "berobero11" 
+createRel(piroyoung, "FOLLOW", R_Linux, weight = 1)
+createRel(piroyoung, "FOLLOW", soultoru, weight = 1)
+createRel(piroyoung, "FOLLOW", u_ribo, weight = 1)
+createRel(piroyoung, "FOLLOW", _zashiki, weight = 1)
+createRel(piroyoung, "FOLLOW", millionsmile, weight = 1)
+createRel(piroyoung, "FOLLOW", Prunus1350, weight = 1)
+createRel(piroyoung, "FOLLOW", horihorio, weight = 1)
+createRel(piroyoung, "FOLLOW", sfchaos, weight = 1)
+createRel(piroyoung, "FOLLOW", yamano357, weight = 1)
+createRel(piroyoung, "FOLLOW", gg_hatano, weight = 1)
+createRel(piroyoung, "FOLLOW", motivic_, weight = 1)
+createRel(piroyoung, "FOLLOW", aich_08_, weight = 1)
+createRel(piroyoung, "FOLLOW", hoxo_m, weight = 1)
+createRel(piroyoung, "FOLLOW", teramonagi, weight = 1)
+createRel(piroyoung, "FOLLOW", dichika, weight = 1)
+createRel(piroyoung, "FOLLOW", tetsuroito, weight = 1)
+createRel(piroyoung, "FOLLOW", siero5335, weight = 1)
+createRel(piroyoung, "FOLLOW", berobero11, weight = 1)
+
+hoxom.flw2$screenName[2]
+hoxom.flw2$res[[2]]$screenName
+# [1] "_zashiki"     "u_ribo"       "R_Linux"      "siero5335"    "aich_08_"     "piroyoung"    "yamano357"    "gg_hatano"    "hoxo_m"       "berobero11"   "soultoru"    
+# [12] "motivic_"     "tetsuroito"   "millionsmile" "sfchaos"      "horihorio"    "dichika"      "teramonagi"
+createRel(Prunus1350, "FOLLOW", zashiki, weight = 1)
+createRel(Prunus1350, "FOLLOW", u_ribo, weight = 1)
+createRel(Prunus1350, "FOLLOW", R_Linux, weight = 1)
+createRel(Prunus1350, "FOLLOW", siero5335, weight = 1)
+createRel(Prunus1350, "FOLLOW", aich_08_, weight = 1)
+createRel(Prunus1350, "FOLLOW", piroyoung, weight = 1)
+createRel(Prunus1350, "FOLLOW", yamano357, weight = 1)
+createRel(Prunus1350, "FOLLOW", gg_hatano, weight = 1)
+createRel(Prunus1350, "FOLLOW", hoxo_m, weight = 1)
+createRel(Prunus1350, "FOLLOW", berobero11, weight = 1)
+createRel(Prunus1350, "FOLLOW", soultoru, weight = 1)
+createRel(Prunus1350, "FOLLOW", motivic_, weight = 1)
+createRel(Prunus1350, "FOLLOW", tetsuroito, weight = 1)
+createRel(Prunus1350, "FOLLOW", millionsmile, weight = 1)
+createRel(Prunus1350, "FOLLOW", sfchaos, weight = 1)
+createRel(Prunus1350, "FOLLOW", horihorio, weight = 1)
+createRel(Prunus1350, "FOLLOW", dichika, weight = 1)
+createRel(Prunus1350, "FOLLOW", teramonagi, weight = 1)
+
+hoxom.flw2$screenName[3]
+hoxom.flw2$res[[3]]$screenName
+# [1] "aich_08_"   "piroyoung"  "_zashiki"   "motivic_"   "yamano357"  "siero5335"  "tetsuroito" "hoxo_m"     "Prunus1350" "gg_hatano"  "berobero11" "teramonagi"
+# [13] "sfchaos"    "u_ribo"     "dichika"
+createRel(R_Linux, "FOLLOW", aich_08_, weight = 1)
+createRel(R_Linux, "FOLLOW", piroyoung, weight = 1)
+createRel(R_Linux, "FOLLOW", zashiki, weight = 1)
+createRel(R_Linux, "FOLLOW", motivic_, weight = 1)
+createRel(R_Linux, "FOLLOW", yamano357, weight = 1)
+createRel(R_Linux, "FOLLOW", siero5335, weight = 1)
+createRel(R_Linux, "FOLLOW", tetsuroito, weight = 1)
+createRel(R_Linux, "FOLLOW", hoxo_m, weight = 1)
+createRel(R_Linux, "FOLLOW", Prunus1350, weight = 1)
+createRel(R_Linux, "FOLLOW", gg_hatano, weight = 1)
+createRel(R_Linux, "FOLLOW", berobero11, weight = 1)
+createRel(R_Linux, "FOLLOW", teramonagi, weight = 1)
+createRel(R_Linux, "FOLLOW", sfchaos, weight = 1)
+createRel(R_Linux, "FOLLOW", u_ribo, weight = 1)
+createRel(R_Linux, "FOLLOW", dichika, weight = 1)
+
+hoxom.flw2$screenName[4]
+hoxom.flw2$res[[4]]$screenName
+#  [1] "u_ribo"       "siero5335"    "piroyoung"    "aich_08_"     "gg_hatano"    "yamano357"    "motivic_"     "berobero11"   "Prunus1350"   "horihorio"    "millionsmile"
+# [12] "hoxo_m"       "tetsuroito"   "R_Linux"      "teramonagi"   "dichika" 
+createRel(sfchaos, "FOLLOW", u_ribo, weight = 1)
+createRel(sfchaos, "FOLLOW", siero5335, weight = 1)
+createRel(sfchaos, "FOLLOW", piroyoung, weight = 1)
+createRel(sfchaos, "FOLLOW", aich_08_, weight = 1)
+createRel(sfchaos, "FOLLOW", gg_hatano, weight = 1)
+createRel(sfchaos, "FOLLOW", yamano357, weight = 1)
+createRel(sfchaos, "FOLLOW", motivic_, weight = 1)
+createRel(sfchaos, "FOLLOW", berobero11, weight = 1)
+createRel(sfchaos, "FOLLOW", Prunus1350, weight = 1)
+createRel(sfchaos, "FOLLOW", horihorio, weight = 1)
+createRel(sfchaos, "FOLLOW", millionsmile, weight = 1)
+createRel(sfchaos, "FOLLOW", hoxo_m, weight = 1)
+createRel(sfchaos, "FOLLOW", tetsuroito, weight = 1)
+createRel(sfchaos, "FOLLOW", R_Linux, weight = 1)
+createRel(sfchaos, "FOLLOW", teramonagi, weight = 1)
+createRel(sfchaos, "FOLLOW", dichika, weight = 1)
+
+hoxom.flw2$screenName[5]
+hoxom.flw2$res[[5]]$screenName
+# [1] "_zashiki"     "R_Linux"      "u_ribo"       "millionsmile" "aich_08_"     "horihorio"    "soultoru"     "Prunus1350"   "yamano357"    "sfchaos"      "gg_hatano"   
+# [12] "tetsuroito"   "piroyoung"    "dichika"      "hoxo_m"       "motivic_"     "berobero11"   "teramonagi"  
+createRel(siero5335, "FOLLOW", zashiki, weight = 1)
+createRel(siero5335, "FOLLOW", R_Linux, weight = 1)
+createRel(siero5335, "FOLLOW", u_ribo, weight = 1)
+createRel(siero5335, "FOLLOW", millionsmile, weight = 1)
+createRel(siero5335, "FOLLOW", aich_08_, weight = 1)
+createRel(siero5335, "FOLLOW", horihorio, weight = 1)
+createRel(siero5335, "FOLLOW", soultoru, weight = 1)
+createRel(siero5335, "FOLLOW", Prunus1350, weight = 1)
+createRel(siero5335, "FOLLOW", yamano357, weight = 1)
+createRel(siero5335, "FOLLOW", sfchaos, weight = 1)
+createRel(siero5335, "FOLLOW", gg_hatano, weight = 1)
+createRel(siero5335, "FOLLOW", tetsuroito, weight = 1)
+createRel(siero5335, "FOLLOW", piroyoung, weight = 1)
+createRel(siero5335, "FOLLOW", dichika, weight = 1)
+createRel(siero5335, "FOLLOW", hoxo_m, weight = 1)
+createRel(siero5335, "FOLLOW", motivic_, weight = 1)
+createRel(siero5335, "FOLLOW", berobero11, weight = 1)
+createRel(siero5335, "FOLLOW", teramonagi, weight = 1)
+
+hoxom.flw2$screenName[6]
+hoxom.flw2$res[[6]]$screenName
+# [1] "aich_08_"     "u_ribo"       "gg_hatano"    "siero5335"    "yamano357"    "hoxo_m"       "piroyoung"    "motivic_"     "berobero11"   "tetsuroito"   "horihorio"   
+# [12] "Prunus1350"   "sfchaos"      "millionsmile" "teramonagi"   "dichika" 
+createRel(soultoru, "FOLLOW", aich_08_, weight = 1)
+createRel(soultoru, "FOLLOW", u_ribo, weight = 1)
+createRel(soultoru, "FOLLOW", gg_hatano, weight = 1)
+createRel(soultoru, "FOLLOW", siero5335, weight = 1)
+createRel(soultoru, "FOLLOW", yamano357, weight = 1)
+createRel(soultoru, "FOLLOW", hoxo_m, weight = 1)
+createRel(soultoru, "FOLLOW", piroyoung, weight = 1)
+createRel(soultoru, "FOLLOW", motivic_, weight = 1)
+createRel(soultoru, "FOLLOW", berobero11, weight = 1)
+createRel(soultoru, "FOLLOW", tetsuroito, weight = 1)
+createRel(soultoru, "FOLLOW", horihorio, weight = 1)
+createRel(soultoru, "FOLLOW", Prunus1350, weight = 1)
+createRel(soultoru, "FOLLOW", sfchaos, weight = 1)
+createRel(soultoru, "FOLLOW", millionsmile, weight = 1)
+createRel(soultoru, "FOLLOW", teramonagi, weight = 1)
+createRel(soultoru, "FOLLOW", dichika, weight = 1)
+
+hoxom.flw2$screenName[7]
+hoxom.flw2$res[[7]]$screenName
+createRel(soultoru, "FOLLOW", dichika, weight = 1)
+# [1] "_zashiki"     "u_ribo"       "aich_08_"     "siero5335"    "yamano357"    "piroyoung"    "gg_hatano"    "berobero11"   "motivic_"     "soultoru"     "hoxo_m"      
+# [12] "Prunus1350"   "R_Linux"      "tetsuroito"   "horihorio"    "millionsmile" "sfchaos"      "dichika"    
+createRel(teramonagi, "FOLLOW", zashiki, weight = 1)
+createRel(teramonagi, "FOLLOW", u_ribo, weight = 1)
+createRel(teramonagi, "FOLLOW", aich_08_, weight = 1)
+createRel(teramonagi, "FOLLOW", siero5335, weight = 1)
+createRel(teramonagi, "FOLLOW", yamano357, weight = 1)
+createRel(teramonagi, "FOLLOW", piroyoung, weight = 1)
+createRel(teramonagi, "FOLLOW", gg_hatano, weight = 1)
+createRel(teramonagi, "FOLLOW", berobero11, weight = 1)
+createRel(teramonagi, "FOLLOW", motivic_, weight = 1)
+createRel(teramonagi, "FOLLOW", soultoru, weight = 1)
+createRel(teramonagi, "FOLLOW", hoxo_m, weight = 1)
+createRel(teramonagi, "FOLLOW", Prunus1350, weight = 1)
+createRel(teramonagi, "FOLLOW", R_Linux, weight = 1)
+createRel(teramonagi, "FOLLOW", tetsuroito, weight = 1)
+createRel(teramonagi, "FOLLOW", horihorio, weight = 1)
+createRel(teramonagi, "FOLLOW", millionsmile, weight = 1)
+createRel(teramonagi, "FOLLOW", sfchaos, weight = 1)
+createRel(teramonagi, "FOLLOW", dichika, weight = 1)
+
+hoxom.flw2$screenName[8]
+hoxom.flw2$res[[8]]$screenName
+# [1] "soultoru"     "R_Linux"      "u_ribo"       "yamano357"    "aich_08_"     "piroyoung"    "siero5335"    "gg_hatano"    "berobero11"   "motivic_"     "Prunus1350"  
+# [12] "hoxo_m"       "horihorio"    "millionsmile" "sfchaos"      "dichika"      "teramonagi" 
+createRel(tetsuroito, "FOLLOW", soultoru, weight = 1)
+createRel(tetsuroito, "FOLLOW", R_Linux, weight = 1)
+createRel(tetsuroito, "FOLLOW", u_ribo, weight = 1)
+createRel(tetsuroito, "FOLLOW", yamano357, weight = 1)
+createRel(tetsuroito, "FOLLOW", aich_08_, weight = 1)
+createRel(tetsuroito, "FOLLOW", piroyoung, weight = 1)
+createRel(tetsuroito, "FOLLOW", siero5335, weight = 1)
+createRel(tetsuroito, "FOLLOW", gg_hatano, weight = 1)
+createRel(tetsuroito, "FOLLOW", berobero11, weight = 1)
+createRel(tetsuroito, "FOLLOW", motivic_, weight = 1)
+createRel(tetsuroito, "FOLLOW", Prunus1350, weight = 1)
+createRel(tetsuroito, "FOLLOW", hoxo_m, weight = 1)
+createRel(tetsuroito, "FOLLOW", hoxo_m, weight = 1)
+createRel(tetsuroito, "FOLLOW", millionsmile, weight = 1)
+createRel(tetsuroito, "FOLLOW", sfchaos, weight = 1)
+createRel(tetsuroito, "FOLLOW", dichika, weight = 1)
+createRel(tetsuroito, "FOLLOW", teramonagi, weight = 1)
+
+hoxom.flw2$screenName[10]
+hoxom.flw2$res[[10]]$screenName
+# [1] "R_Linux"      "horihorio"    "u_ribo"       "soultoru"     "millionsmile" "aich_08_"     "siero5335"    "piroyoung"    "motivic_"     "dichika"      "tetsuroito"  
+# [12] "gg_hatano"    "berobero11"   "hoxo_m"       "Prunus1350"   "teramonagi"   "sfchaos"  
+createRel(yamano357, "FOLLOW", R_Linux, weight = 1)
+createRel(yamano357, "FOLLOW", horihorio, weight = 1)
+createRel(yamano357, "FOLLOW", u_ribo, weight = 1)
+createRel(yamano357, "FOLLOW", soultoru, weight = 1)
+createRel(yamano357, "FOLLOW", millionsmile, weight = 1)
+createRel(yamano357, "FOLLOW", aich_08_, weight = 1)
+createRel(yamano357, "FOLLOW", siero5335, weight = 1)
+createRel(yamano357, "FOLLOW", piroyoung, weight = 1)
+createRel(yamano357, "FOLLOW", motivic_, weight = 1)
+createRel(yamano357, "FOLLOW", dichika, weight = 1)
+createRel(yamano357, "FOLLOW", tetsuroito, weight = 1)
+createRel(yamano357, "FOLLOW", gg_hatano, weight = 1)
+createRel(yamano357, "FOLLOW", berobero11, weight = 1)
+createRel(yamano357, "FOLLOW", hoxo_m, weight = 1)
+createRel(yamano357, "FOLLOW", Prunus1350, weight = 1)
+createRel(yamano357, "FOLLOW", teramonagi, weight = 1)
+createRel(yamano357, "FOLLOW", sfchaos, weight = 1)
+```
+
+
+### クエリーを実行する
+
+Neo4Jでのクエリーを記述するのには「[Cypher](http://neo4j.com/developer/cypher-query-language/)」というものを使うそうです（MySQLでいうところのSQL）。`cypher()`関数にクエリーを文字列で渡して実行します。
+
+```{r}
+query = "MATCH n RETURN n.name, n.role LIMIT 1"
+(f <- cypher(graph, query))
+```
+
+#### フォロー関係を図で表現する
+
+いくつかの方法でグラフを作成できますが、**`{visNetwork}`**パッケージを使うとモダンな感じでデータ間の関係性を示すことができます。
+
+```{r, eval = TRUE}
+library(visNetwork)
+```
+
+すべての関係を図示するとカオスな感じになったので、現在もホクソエムを名乗り続けているメンバーに絞ります。
+
+```{r}
+true.hoxom <- c("aich_08_", "hoxo_m", "R_Linux", "yamano357", "motivic_", "soultoru", 
+                "piroyoung", "horihorio", "siero5335", "u_ribo", "zashiki")
+```
+
+
+```{r, eval = FALSE, echo = TRUE}
+# ベクトルを作成する
+# true.hoxom <- c("")
+
+query = '
+MATCH (n)-[:FOLLOW]->(n2)
+RETURN n.name AS from, n2.name AS to, COUNT(*) AS weight
+'
+
+# （今更感があるけど）ユーザー名を隠すために符号化しておく
+flw <- cypher(graph, query) %>% 
+  dplyr::filter(from %in% true.hoxom,
+                to %in% true.hoxom) %>% 
+  dplyr::mutate(from  = from %>% as.factor() %>% as.numeric(),
+                to    = to %>% as.factor() %>% as.numeric())
+
+nodes <- data_frame(id = unique(c(flw$from, flw$to)),
+                    label = id)
+
+visNetwork(nodes, flw) %>%
+  visEdges(color = list(hover = "deeppink")) %>% 
+  visInteraction(hover = TRUE) %>% 
+  visOptions(highlightNearest = TRUE) %>% 
+  visNodes(shape = "icon", icon = list(face = "FontAwesome", code = "f007", color = "forestgreen")) %>%
+  addFontAwesome() %>% 
+  visSave(file = "hoxom_follows_out.html")
+```
+
+グニャグニャと動いている場合、しばらく待つと止まります...。
+
+
+
+### `r emoji("tea")` 所感
+
+* ノード間の関係を構築していく作業が結構面倒。
+* SQLよりもCypherの方が扱いやすい印象
+* 結局関係が複雑すぎて当初の目標を達成できていない感。
+* すべてのメンバーが相互フォローしているわけではないので、ホクソエムも一枚岩ではないなと思うなど。
+
+### `r emoji("bookmark")` 参考
+
+* [Visualizing Your Graph with RNeo4j - Neo4j Graph Database](http://neo4j.com/blog/visualize-graph-with-rneo4j/)
+
+
+### `r emoji("computer")` 実行環境
+
+```{r, eval = TRUE}
+devtools::session_info() %>% {
+  print(.$platform)
+  .$packages %>% dplyr::filter(`*` == "*") %>% knitr::kable(format = "markdown")
+}
+```
+
+-----
+
+```{r defunct, eval=FALSE, echo=FALSE}
+info.hoxom %>% 
+  .$user %>% 
+  map_df(~ .[c("screenName", "created", "description")])
+
+flws <- getUser(hoxoms[19])$getFriends() %>% 
+  twListToDF() %>%
+  dplyr::select(screenName, description, created) %>% 
+  dplyr::filter(screenName %in% hoxoms)
+
+tmp.df1 <- res.hoxom$res[[1]] %>% 
+  dplyr::mutate(flw = 1) %>% 
+  full_join(df.hoxom) %>% 
+  dplyr::arrange(screenName)
+tmp.df2 <- res.hoxom$res[[2]] %>% 
+  dplyr::mutate(flw = 1) %>% 
+  full_join(df.hoxom) %>% 
+  dplyr::arrange(screenName)
+
+bind_cols(tmp.df1, tmp.df2)
+
+
+df.hoxom %>% combine(res.hoxom$res[[1]])
+res.hoxom$res[[1]] %>% cbind(res.hoxom$res[[2]])
+
+hoxom.flw <- df.hoxom %>% 
+  group_by(screenName) %>% 
+  do(res = getUser(.)$getFriends() %>% 
+       twListToDF() %>%
+       dplyr::select(screenName) %>% 
+       dplyr::filter(screenName %in% df.hoxom$screenName))
+
+library(igraph)
+ig <- graph_from_data_frame(f, directed = F)
+nodes$value <- betweenness(ig)
+clusters <- cluster_edge_betweenness(ig)
+nodes$group <- clusters$membership
+nodes$value <- NULL
+visNetwork(nodes, f, width = "100%") %>% visInteraction(dragNodes = FALSE, dragView = FALSE, zoomView = FALSE)
+
+library(igraph)
+query = "
+MATCH (n)-[:FOLLOW]->(n2)
+RETURN n.name AS from, n2.name AS to, COUNT(*) AS weight
+"
+
+f <- cypher(graph, query)
+
+ig <- graph.data.frame(f, directed = FALSE)
+plot(ig)
+
+library(network)
+library(GGally)
+
+ggnet(f, label.nodes = TRUE)
+```

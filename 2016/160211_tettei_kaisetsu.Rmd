@@ -1,0 +1,48 @@
+---
+title: "`r remoji::emoji('tea')`「R言語徹底解説」のサポート対応が良過ぎる件" 
+author: "Shinya Uryu"
+date: "2016年2月11日"
+output: 
+  md_document:
+    variant: markdown_github
+---
+
+```{r [SETTING], include = FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = TRUE, 
+                      message = FALSE, error = FALSE, warning = FALSE,
+                      fig.align = "center",
+                      tidy = TRUE,
+                      tidy.opts = list(blank = FALSE, width.cutoff = 40))
+```
+
+```{r, eval = TRUE, include = FALSE}
+library(magrittr)
+library(remoji)
+```
+
+[昨日書いた「R言語徹底解説」の記事](http://uribo.hatenablog.com/entry/book_review_adv_r)<img src = "http://b.st-hatena.com/entry/image/http://uribo.hatenablog.com/entry/book_review_adv_r">、たくさんのブックマーク、ツイッターでのつぶやきなどありがとうございます。少しでも購入の参考、後押しと慣れれば幸いです。
+
+さて、突然ですがこちらの画像をご覧ください。
+
+これは日本のRユーザーの集うゆるふわなチャットルーム r-wakalang の「R言語徹底解説」専用のチャンネルの画面をスクリーンキャプチャしたものです。一人のメンバーの、「R言語徹底解説のチャンネルが欲しい」という鶴の一声で特設されました。（<u>r-wakalangの参考記事、参加の仕方は後述します</u>）
+
+こうした空間があることで、<span class = "hlt_bf">本書を読み進めながら疑問に思った箇所や誤植の報告を行うことができます</span>。しかもメンバーはRに熟練した者から今日から始めた、くらいの方までさまざまですので、**いろいろな見方で本書への理解を深めることができる**のではないでしょうか。予想通り、熱い議論が行われています。
+
+昨日の記事では「訳者による脚注が足りない」とケチをつけてしまいましたが、こうした「非公式」なサポートがなされる「R言語徹底解説」が行われるのを見て、**この書はやっぱり必携だわ**、という気持ちになりました。一緒にR言語を徹底的に理解しましょう！
+
+### r-wakalangへの参加方法
+
+1. [こちらのリンク](https://r-wakalang.herokuapp.com)をクリックします
+2. 遷移先のサイトに*登録したいメールアドレス*を登録します
+3. 登録したメールに招待メールが来ているので、それをクリック！！
+4. Welcome!!!
+
+`r emoji("warning")`注意: 登録の際に用いた`r emoji("envelope")`メールアドレスはメンバー間で閲覧可能なものとなります。支障のないメールアドレスでの登録を推奨します `r emoji("construction")`
+
+https://r-wakalang.herokuapp.com
+
+#### 参考
+
+http://qiita.com/uri/items/5583e91bb5301ed5a4ba
+
+http://www.slideshare.net/teramonagi/ss-52463319

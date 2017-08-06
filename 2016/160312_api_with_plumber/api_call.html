@@ -1,0 +1,25 @@
+<html>
+<head>
+<title>{plumber}でAPIサーバー</title>
+<script>
+function resetVals() {
+    var xhttp = new XMLHttpRequest();
+    xhttp.open("GET", "http://localhost:8000/chenge_color", true);
+    xhttp.send();
+}
+function imagerefresh() {
+        document.getElementById("chart").src="http://localhost:8000/ggp2dens_color?seed="+new Date().getUTCMilliseconds();
+}
+
+function startrefresh() {
+    setInterval(imagerefresh, 1000)
+}
+</script>
+</head>
+<body onload="startrefresh()">
+<h1>{plumber}でAPIサーバー</h1>
+<img id = "chart" src = "http://localhost:8000/ggp2dens_color?seed=71" align = "center" />
+<br />
+<a href="#" onclick="resetVals()">chenge color!</a>
+</body>
+</html>
