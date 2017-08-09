@@ -1,0 +1,207 @@
+---
+title: "データフレームの特徴をもっと早く掴みたい ~ ハドリーへの挑戦" 
+author: "Shinya Uryu"
+date: "2017年8月9日"
+output: 
+  md_document:
+    variant: markdown_github
+---
+
+```{r [SETTING], include = FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = FALSE, 
+                      message = FALSE, error = FALSE, warning = FALSE,
+                      fig.align = "center",
+                      tidy = TRUE,
+                      tidy.opts = list(blank = FALSE, width.cutoff = 40))
+```
+
+```{r, eval = TRUE, include = FALSE}
+library(magrittr)
+library(emo)
+```
+
+探索的なデータ分析 (Explore Data Analysis: EDA)を行う際は、データの要約や欠損の有無の確認、可視化が欠かせない作業となります。
+
+特に可視化は、データのもつ性質や関係を表現するのに大変役立ちます。一方で、可視化に用いた図はコードとは別に保存する必要があったり、作図のためのコードを書いたりと、面倒な側面もあります。
+
+... きちんとした作図は面倒だけどデータの性質や欠損について把握したい。そんな時にはコンソール上での可視化を試しましょう。そのためのパッケージをHadley Wickhamが開発しています。
+
+https://github.com/hadley/precis
+
+Rにはそもそも、オブジェクトの情報を要約してくれる`summary()`関数があるのですが、この
+**precis**パッケージは、それを置き換えるような設計を目指しているそうです。早速使ってみましょう。
+
+```{r}
+# githubinstall::githubinstall("precis")
+library(precis)
+```
+
+現在**precis**が提供するのは、それぞれベクトルとデータフレームの要約を行う2つの関数、`precis_v()`と`precis()`です。`precis()`が返す個々の情報は、`precis_v()`によるものです。
+
+データフレームに`precis()`を実行すると、次のような出力が行われます。`summary()`と異なり、返り値もデータフレームであるのが特徴で、データフレームの変数名を示すname、変数のデータ型を示すtype、そして変数をベクトルとして評価した時の要約した情報がprecis列に格納されています。
+
+```{r}
+precis(iris)
+precis(mtcars)
+```
+
+precis列の値は、対象の変数のデータ型に応じて異なります。例えば数値であれば、最小値、第一四分位、中央値、第三四分位、最大値の値です(`summary()`で得られる情報と同じ)。最大値と最小値の間が`[`括弧になっており、中央値については`(`括弧が使われているのでわかりやすいですね。また、因子型や文字列型については、順位、カウント値の情報が出力されます。
+
+`precis()`の良い点は、これに加えて引数*histogram*で*TRUE*を指定した際に、数値データのヒストグラムをコンソール上で描画してくれるところです。例えば次の例では、`hist(iris$Sepal.Length)`とせずともデータの分布が掴めるので、偏りがあるとか正規分布に近い、といったことが把握しやすいという利点になります。
+
+```{r}
+precis(iris, histogram = TRUE)
+```
+
+... でも、それだけでなく、欠損値やカウントの数を知りたいんだ！という気持ちが改造したのが次の`uncover()`関数になります。gistからソースコードを引っ張って来ることで利用可能になります。
+
+```{r, eval = FALSE, echo = TRUE}
+devtools::source_gist("f275260bbd1da5f613241458c43adb2d",
+                      filename = "uncover.R")
+```
+
+対象をデータフレームとしている点は変わりません。一方で**precis**の対応していないtableオブジェクトでもデータフレームとみなして処理させることが可能です。
+
+探索的なデータ分析 (Explore Data Analysis: EDA)を行う際は、データの要約や欠損の有無の確認、可視化が欠かせない作業となります。
+
+特に可視化は、データのもつ性質や関係を表現するのに大変役立ちます。一方で、可視化に用いた図はコードとは別に保存する必要があったり、作図のためのコードを書いたりと、面倒な側面もあります。
+
+... きちんとした作図は面倒だけどデータの性質や欠損について把握したい。そんな時にはコンソール上での可視化を試しましょう。そのためのパッケージをHadley Wickhamが開発しています。
+
+https://github.com/hadley/precis
+
+Rにはそもそも、オブジェクトの情報を要約してくれる`summary()`関数があるのですが、この
+**precis**パッケージは、それを置き換えるような設計を目指しているそうです。早速使ってみましょう。
+
+```{r}
+# githubinstall::githubinstall("precis")
+library(precis)
+```
+
+現在**precis**が提供するのは、それぞれベクトルとデータフレームの要約を行う2つの関数、`precis_v()`と`precis()`です。`precis()`が返す個々の情報は、`precis_v()`によるものです。
+
+データフレームに`precis()`を実行すると、次のような出力が行われます。`summary()`と異なり、返り値もデータフレームであるのが特徴で、データフレームの変数名を示すname、変数のデータ型を示すtype、そして変数をベクトルとして評価した時の要約した情報がprecis列に格納されています。
+
+```{r}
+precis(iris)
+precis(mtcars)
+```
+
+precis列の値は、対象の変数のデータ型に応じて異なります。例えば数値であれば、最小値、第一四分位、中央値、第三四分位、最大値の値です(`summary()`で得られる情報と同じ)。最大値と最小値の間が`[`括弧になっており、中央値については`(`括弧が使われているのでわかりやすいですね。また、因子型や文字列型については、順位、カウント値の情報が出力されます。
+
+`precis()`の良い点は、これに加えて引数*histogram*で*TRUE*を指定した際に、数値データのヒストグラムをコンソール上で描画してくれるところです。例えば次の例では、`hist(iris$Sepal.Length)`とせずともデータの分布が掴めるので、偏りがあるとか正規分布に近い、といったことが把握しやすいという利点になります。
+
+```{r}
+precis(iris, histogram = TRUE)
+```
+
+... でも、それだけでなく、欠損値やカウントの数を知りたいんだ！という気持ちが改造したのが次の`uncover()`関数になります。gistからソースコードを引っ張って来ることで利用可能になります。
+
+```{r, eval = FALSE, echo = TRUE}
+devtools::source_gist("f275260bbd1da5f613241458c43adb2d",
+                      filename = "uncover.R")
+```
+
+```{r}
+uncover(mtcars)
+```
+
+    ### A tibble: 11 x 6
+    ##   variable data_type          range count missing           hist
+    ##      <chr>     <chr>          <chr> <int>   <int>          <chr>
+    ## 1      mpg   numeric   10.4 to 33.9    25       0   ▂▁▇▃▅▅▂▂▁▁▂▂
+    ## 2      cyl   numeric         4 to 8     3       0       ▅▁▁▃▁▁▁▇
+    ## 3     disp   numeric    71.1 to 472    27       0      ▅▇▃▁▃▃▃▁▂
+    ## 4       hp   numeric      52 to 335    22       0         ▇▇▃▃▁▁
+    ## 5     drat   numeric   2.76 to 4.93    22       0   ▂▂▇▂▁▅▇▃▂▁▁▁
+    ## 6       wt   numeric 1.513 to 5.424    29       0       ▃▃▃▇▅▁▁▂
+    ## 7     qsec   numeric   14.5 to 22.9    30       0      ▁▂▂▇▃▂▁▁▁
+    ## 8       vs   numeric         0 to 1     2       0     ▇▁▁▁▁▁▁▁▁▅
+    ## 9       am   numeric         0 to 1     2       0     ▇▁▁▁▁▁▁▁▁▅
+    ##10     gear   numeric         3 to 5     3       0     ▇▁▁▁▅▁▁▁▁▂
+    ##11     carb   numeric         1 to 8     6       0 ▅▇▁▂▁▇▁▁▁▁▁▁▁▁
+
+```{r}
+uncover(ggplot2::diamonds)
+```
+
+    ### A tibble: 10 x 6
+    ##   variable      data_type         range count missing                 hist
+    ##      <chr>          <chr>         <chr> <int>   <int>               <list>
+    ## 1    carat        numeric   0.2 to 5.01   273       0            <chr [1]>
+    ## 2      cut ordered_factor Fair to Ideal     5       0 <data.frame [5 x 2]>
+    ## 3    color ordered_factor        D to J     7       0 <data.frame [7 x 2]>
+    ## 4  clarity ordered_factor      I1 to IF     8       0 <data.frame [8 x 2]>
+    ## 5    depth        numeric      43 to 79   184       0            <chr [1]>
+    ## 6    table        numeric      43 to 95   127       0            <chr [1]>
+    ## 7    price        integer  326 to 18823 11602       0            <chr [1]>
+    ## 8        x        numeric    0 to 10.74   554       0            <chr [1]>
+    ## 9        y        numeric     0 to 58.9   552       0            <chr [1]>
+    ##10        z        numeric     0 to 31.8   375       0            <chr [1]>
+
+range列は`precis()`同様、変数のデータの幅を示すものですが、こちらは最小値と最大値しかわかりません。順位のある因子型は順位の並びで最小・最大のものが出力されるようになっています。
+
+また、変数が数値であれば`precis()`と同じくヒストグラムを出力します。が、因子型や文字列が含まれるデータでは次のようにhist列の情報はリストカラムとして格納されます。これを取り出すには、`dplyr::filter`でデータ型の制限をし、`tidyr::unnest()`でリストカラムを解除してください。
+
+```{r}
+uncover(ggplot2::diamonds) %>% 
+  dplyr::filter(data_type %in% c("numeric", "integer")) %>% 
+  tidyr::unnest()
+```
+
+    ### A tibble: 7 x 6
+    ##  variable data_type        range count missing         hist
+    ##     <chr>     <chr>        <chr> <int>   <int>        <chr>
+    ##1    carat   numeric  0.2 to 5.01   273       0  ▇▇▅▁▁▁▁▁▁▁▁
+    ##2    depth   numeric     43 to 79   184       0     ▁▁▁▁▇▁▁▁
+    ##3    table   numeric     43 to 95   127       0  ▁▁▂▇▁▁▁▁▁▁▁
+    ##4    price   integer 326 to 18823 11602       0   ▇▃▂▁▁▁▁▁▁▁
+    ##5        x   numeric   0 to 10.74   554       0  ▁▁▁▁▇▇▇▂▁▁▁
+    ##6        y   numeric    0 to 58.9   552       0 ▃▇▁▁▁▁▁▁▁▁▁▁
+    ##7        z   numeric    0 to 31.8   375       0      ▇▁▁▁▁▁▁
+
+```{r}
+uncover(ggplot2::diamonds) %>% 
+  dplyr::filter(data_type %in% c("ordered_factor")) %>% 
+  tidyr::unnest()
+```
+
+    ### A tibble: 20 x 7
+    ##   variable      data_type         range count missing value.Var1 value.Freq
+    ##      <chr>          <chr>         <chr> <int>   <int>      <chr>      <int>
+    ## 1      cut ordered_factor Fair to Ideal     5       0       Fair       1610
+    ## 2      cut ordered_factor Fair to Ideal     5       0       Good       4906
+    ## 3      cut ordered_factor Fair to Ideal     5       0  Very Good      12082
+    ## 4      cut ordered_factor Fair to Ideal     5       0    Premium      13791
+    ## 5      cut ordered_factor Fair to Ideal     5       0      Ideal      21551
+    ## 6    color ordered_factor        D to J     7       0          D       6775
+    ## 7    color ordered_factor        D to J     7       0          E       9797
+    ## 8    color ordered_factor        D to J     7       0          F       9542
+    ## 9    color ordered_factor        D to J     7       0          G      11292
+    ##10    color ordered_factor        D to J     7       0          H       8304
+    ##11    color ordered_factor        D to J     7       0          I       5422
+    ##12    color ordered_factor        D to J     7       0          J       2808
+    ##13  clarity ordered_factor      I1 to IF     8       0         I1        741
+    ##14  clarity ordered_factor      I1 to IF     8       0        SI2       9194
+    ##15  clarity ordered_factor      I1 to IF     8       0        SI1      13065
+    ##16  clarity ordered_factor      I1 to IF     8       0        VS2      12258
+    ##17  clarity ordered_factor      I1 to IF     8       0        VS1       8171
+    ##18  clarity ordered_factor      I1 to IF     8       0       VVS2       5066
+    ##19  clarity ordered_factor      I1 to IF     8       0       VVS1       3655
+    ##20  clarity ordered_factor      I1 to IF     8       0         IF       1790
+
+
+```{r}
+uncover(datasets::Titanic) %>% 
+  dplyr::filter(data_type %in% c("numeric", "integer")) %>% 
+  tidyr::unnest()
+```
+
+    ### A tibble: 1 x 6
+    ##  variable data_type    range count missing           hist
+    ##     <chr>     <chr>    <chr> <int>   <int>          <chr>
+    ##1        n   numeric 0 to 670    22       0 ▇▂▁▁▁▁▁▁▁▁▁▁▁▁
+
+コードを書いてみて思ったのが、`precis::precis()`でいいじゃん...ということでした。いやでも`uncover()`も役立つ時があるはず！（ハドリーへの挑戦と思ってこの思い出は胸にしまっておきます）
+
+いやあ、欲を言えばこういうことがしたいんですよね（次回に続く...）
