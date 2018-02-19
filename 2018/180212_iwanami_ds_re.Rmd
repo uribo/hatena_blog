@@ -1,0 +1,145 @@
+---
+title: "RStanのおさらいをしながら読む 岩波DS 1 (作図周りをアップデートした2018年版)"
+author: "Shinya Uryu"
+date: "2018年2月12日"
+output: 
+  md_document:
+    variant: markdown_github
+---
+
+```{r [SETTING], include = FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = FALSE, 
+                      message = FALSE, error = FALSE, warning = FALSE,
+                      fig.align = "center",
+                      tidy = TRUE,
+                      tidy.opts = list(blank = FALSE, width.cutoff = 40))
+```
+
+```{r, eval = TRUE, include = FALSE}
+library(magrittr)
+```
+
+最近、私が[以前書いた](http://rpubs.com/uri-sy/iwanami_ds1)岩波DSの久保さんパートのおさらい記事を久保さん本人がRTしていたのを見て（ああ、あの頃はまだ大学院生をやっていたのだと懐かしくなったと同時に）、移り変わりのあるRコードは今も動くのか心配になった。結論を先に言うと、RPubsに書いたコードは現在の環境でも問題なく動作した。が、その頃にはtidyverseも十分に整備されていなかったし、私のR技術力も低く、ヘンテコなコードを書いていたのが気になった。新しいパッケージも出ていることだし、2018年版ということで再度実行してみた、という始末である。
+
+ちなみに元の記事でもstanコードは id: StatModeling さんの記事に書かれているものをコピーしたが、代入に「`<-`」を使うとstanが警告文を出すので「`=`」に書き換えておいた（非推奨なだけで実行自体はしてくれる。`<-`が非推奨〜云々は「StanとRでベイズ統計モデリング」でも書かれている）。
+
+以下、変更した部分だけを書く。結果は変わらないので内容ではない。
+
+まず例題として用意されているデータ(久保さんのウェブサイトからダウンロード)を`dplyr::glimepse()`で確認しているが、これと同じデータの確認は、私は最近**skimr**パッケージの`skim()`を使ってやることが多い。
+
+```{r}
+skimr::skim(d)
+# Skim summary statistics
+#  n obs: 20 
+#  n variables: 6 
+# 
+# Variable type: factor 
+#  variable missing complete  n n_unique             top_counts ordered
+#      pref       0       20 20       10 A: 2, B: 2, C: 2, D: 2   FALSE
+# 
+# Variable type: integer 
+#  variable missing complete  n mean   sd p0   p25 median p75 p100     hist
+#         N       0       20 20 54.1 2.77 49 52.75   54    56   59 ▃▃▂▇▆▃▂▅
+#         X       0       20 20  0.5 0.51  0  0       0.5   1    1 ▇▁▁▁▁▁▁▇
+# 
+# Variable type: numeric 
+#  variable missing complete  n   mean   sd     p0    p25 median    p75   p100     hist
+#       Age       0       20 20   0.5  0.51   0      0      0.5    1      1    ▇▁▁▁▁▁▁▇
+#    mean.Y       0       20 20 155.3  2.8  151.36 153.06 155.69 157.22 161.71 ▃▇▁▂▇▁▁▁
+#      sd.Y       0       20 20   2.97 0.23   2.45   2.9    3.06   3.11   3.21 ▂▁▂▁▁▂▇▆
+```
+
+これだけでも数値からなる変数のデータのばらつきが把握できて大変良い。なお**skimr**パッケージの良さは id:niszet 氏が語ってくれている。
+
+http://niszet.hatenablog.com/entry/2018/02/05/073000
+
+**skimr**はさらにここから**dplyr**パッケージの関数と組み合わせて利用することでグループ化したデータの要約や並びかえも行える。例えば、都道府県 `pref` 、測定回数 `Age` (1,2回目の測定をそれぞれ0と1で示す）ごとの平均身長 `mean.Y`の中央値を求め、平均身長の順に並びかえて表示するには次のようにする。**dplyr**(あるいは**tidyverse**)は、モデリングを行う際でも使う機会があるので最初に読み込んでおくと良いだろう。
+
+```{r}
+library(dplyr)
+
+# skimr::skim()以外はすべてdplyrパッケージのデータ操作関数を利用
+d %>%
+  # 必要な変数にのみ制限
+  select(pref, Age, mean.Y) %>%
+  # 都道府県、測定回数でグループ化し
+  group_by(pref, Age) %>%
+  # 統計量を求める
+  skimr::skim() %>% 
+  ungroup() %>% 
+  # 統計量から中央値を抽出
+  filter(stat == "median") %>% 
+  # 平均身長の中央値が低い順に並びをかえる
+  arrange(value)
+# # A tibble: 20 x 8
+#    pref    Age variable type    stat   level value formatted
+#    <fct> <dbl> <chr>    <chr>   <chr>  <chr> <dbl> <chr>    
+#  1 A      0    mean.Y   numeric median .all    151 151.36   
+#  2 B      0    mean.Y   numeric median .all    152 151.56   
+#  3 C      0    mean.Y   numeric median .all    152 152.22   
+#  4 I      0    mean.Y   numeric median .all    153 152.67   
+#  5 G      0    mean.Y   numeric median .all    153 152.98   
+#  6 D      0    mean.Y   numeric median .all    153 153.09   
+#  7 E      0    mean.Y   numeric median .all    153 153.22   
+#  8 H      0    mean.Y   numeric median .all    153 153.27   
+#  9 F      0    mean.Y   numeric median .all    153 153.31   
+# 10 J      0    mean.Y   numeric median .all    155 155.37   
+# 11 D      1.00 mean.Y   numeric median .all    156 156      
+# 12 I      1.00 mean.Y   numeric median .all    157 156.82   
+# 13 B      1.00 mean.Y   numeric median .all    157 156.83   
+# 14 C      1.00 mean.Y   numeric median .all    157 157.08   
+# 15 F      1.00 mean.Y   numeric median .all    157 157.22   
+# 16 E      1.00 mean.Y   numeric median .all    157 157.24   
+# 17 A      1.00 mean.Y   numeric median .all    157 157.27   
+# 18 G      1.00 mean.Y   numeric median .all    158 157.81   
+# 19 H      1.00 mean.Y   numeric median .all    159 158.95   
+# 20 J      1.00 mean.Y   numeric median .all    162 161.71
+```
+
+`glm()`の部分は依然として**broom**パッケージを使っているので変更なし。
+
+さて以前はstanコードのdataブロックに渡すデータをリストで作成したが、ここも変わりがない。強いて言うなら、 `list()`の代わりに`tibble::lst()`にすることや、ユニークな都道府県の数をカウントした値（`length(unique(d$pref))`）はよく使うので、別なオブジェクトにしておくと良いだろう。また、`length(unique(x))`の部分は`n_distinct(x)`に書き換えるのが新しいやり方。もしくはこうした定数は別なファイルに記述して、**config**パッケージで必要な時に参照する方法もある。
+
+```{r}
+n_pref <- n_distinct(d$pref)
+
+# list
+tibble::lst(
+  N_r     = 2,
+  N_pref  = n_pref,
+  Mean_Y  = t(matrix(d$mean.Y, n_pref, 2)),
+  Sigma_Y = t(matrix(d$sd.Y / sqrt(d$N), n_pref, 2)),
+  X       = t(matrix(d$X, n_pref, 2)),
+  Age     = t(matrix(d$Age, n_pref, 2)))
+```
+
+https://suryu.me/post/r_advent_calendar_day2/
+
+http://blog.hoxo-m.com/2017/04/20/config/
+
+stanコードのビルド、MCMCサンプリングの実行も変わりがない。記事を書いた時からStanは色々なアップデートがあっただろうが、動いてよかった..。
+
+最後にサンプリング結果から推定したパラメータの可視化を行なっているが、ここもそのままのコードが動作する。ただし**gridExtra**を使った複数のggplot2作図の結合はちょっと古いかつ、若干わかりにくいので**egg**あるいは**patchwork** (2018年2月現在 GitHub版のみ利用可能 https://github.com/thomasp85/patchwork) パッケージで代替する。個人的には**patchwork**の方が好み。
+
+事後分布のヒストグラムやら、**ggmcmc**で作図するところまでは同じ。まずは**egg**を使った方法から。
+
+```{r}
+library(egg)
+(p <- ggarrange(p1, p2, p3, p4, widths = 1:2))
+```
+
+```{r}
+library(patchwork)
+(p <- p1 + p2 + p3 + p4 + plot_layout(ncol = 2))
+```
+
+```{r}
+# egg, patchwork いずれも保存は同じ方法
+ggsave(filename = "samping_parameters_result.png",
+       p, 
+       width = 6, height = 4)
+```
+
+ああ、まだ「ベイズモデリングの世界」が買ったまま読めていない...。
+
+Enjoy!
