@@ -1,0 +1,8 @@
+version: "3"
+services:
+  rstudio:
+    build: "./inst"
+    ports:
+      - "8787:8787"
+    volumes:
+      - .:/home/rstudio/hatena_blog
