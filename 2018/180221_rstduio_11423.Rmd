@@ -1,0 +1,84 @@
+---
+title: "最近お気に入りのRStudio(ver.1.1.423)の機能: ファイル内検索とTODOハイライト"
+author: "Shinya Uryu"
+date: "2018年2月21日"
+output: 
+  md_document:
+    variant: markdown_github
+---
+
+```{r [SETTING], include = FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = FALSE, 
+                      message = FALSE, error = FALSE, warning = FALSE,
+                      fig.align = "center",
+                      tidy = TRUE,
+                      tidy.opts = list(blank = FALSE, width.cutoff = 40))
+```
+
+```{r, eval = TRUE, include = FALSE}
+library(magrittr)
+```
+
+先日、RStudioのバージョン1.1.423が[リリースされました](https://www.rstudio.com/products/rstudio/release-notes/)。
+
+https://twitter.com/kazutan/status/963403424615219201
+
+v1.1からの更新内容については先日開催されたrstudio::conf 2018にて、開発者の一人であるKevinが発表しているので詳細はこちらをご覧ください。国内ではぞうさんこと[@kazutan](https://twitter.com/kazutan)が記事にしています。
+
+https://kevinushey-2018-rstudio-conf.netlify.com/slides.html#10
+
+https://kazutan.github.io/blog/2017/10/rstudio-v1-1/
+
+そんな開発が活発なRStudioですが、最新のv1.1.423で利用可能な個人的におすすめしたいプロジェクトの運用がしやすくなる2つの機能について紹介します。
+
+## プロジェクト中のファイル内検索
+
+どうしてこの機能に気がつかなかったのだろう。この機能を使う前と後では私のRStudioの使い方は一変してしまいました、そのくらいのお気に入りの機能。
+
+プロジェクトやパッケージが肥大してくると、全てのRファイルや関数について把握するのは難しくなります。「このデータファイルはここで使っている」、「この図はあそこのRファイルで出力している」などなど。対象のファイルの名前やパス、オブジェクト名を変更した際、影響を及ぼす範囲を把握しきれていないと変更が追いつかず、ある日エラーになっている、という経験が皆さんにもあるでしょう。
+
+そんな時にこの機能を使うと、Rプロジェクト中のファイルから、任意の文字列を検索し、どのファイル、どの部分で記述されているかがわかって大変便利です。特に誰かのパッケージやプロジェクトに首を突っ込む時、自分が変更した箇所が他のファイルに反映されているかを確かめるときに重宝します。
+
+ショートカットキーが当てられていて、macOSでは「コマンド + シフト + F」で検索用の画面が起動します。正規表現の利用や対象のパス、ファイル形式について設定できて高機能です。
+
+検索結果は、RStudioのコンソールパネルのタブとして表示されます。検索結果を見ると、検索した文字列がどこで使われているかがハイライトされます。また、特定行をクリックすることで、その部分をソースパネルで編集することができます。
+
+[f:id:u_ribo:20180221071044g:plain]
+
+全てのファイルの中身を一度に変更することはできませんが、こうして影響のある部分を書き換えていくことで、変更によるトラブルを防げるようになります。
+
+## TODOハイライト
+
+こちらはid:niszetさんのつぶやきで知りましたが、Rファイル中で特定の文字列がハイライトされるようになっています。特定の文字列とは"TODO", "FIXME"の[2つです](https://github.com/rstudio/rstudio/blob/2f61e0197d53f8db70bc0fd1f52d2595bae31e11/src/gwt/acesupport/acemode/r_highlight_rules.js#L229-L233)。
+
+https://github.com/rstudio/rstudio/pull/970
+
+コード中にこうしたコメントを残しておくことで、視認性・コードの保守性が向上しますね。
+
+```{r}
+# FIXME: 修正を要する箇所に記述
+# TODO: 将来追加・更新すべき箇所
+```
+
+### todorパッケージ
+
+https://github.com/dokato/todor
+
+この機能と組み合わせて、todorパッケージが便利です。このパッケージは、プロジェクト中の"TODO"や"FIXME"などの特定の文字列を検索します。こちらが対応しているのはRStudioのものよりも多いです。
+
+CRANには登録されていないため、利用の際にはGitHub経由でインストールを行います。
+
+```{r, eval = FALSE, echo = TRUE}
+remotes::install_github("dokato/todor")
+```
+
+`todor::todor()`およびRStudio Addinsから実行します。
+
+
+## RStudio v1.2に向けて
+
+GitHubのNEWSを見ると、どうやら次のバージョン(v1.2)では**reticulate**パッケージによるPythonとの連携機能の強化が行われている様子。
+
+また、daily build版だけなのかもしれませんが、アイコンが...
+
+Enjoy!
