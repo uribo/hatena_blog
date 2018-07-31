@@ -8,7 +8,6 @@ RUN set -x && \
   rm -rf /var/lib/apt/lists/* && \
   install2.r --error \
     extrafont \ 
-    here \
     jpmesh \
     jpndistrict && \
   installGithub.r \
