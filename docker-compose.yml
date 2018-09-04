@@ -5,4 +5,6 @@ services:
     ports:
       - "8787:8787"
     volumes:
-      - .:/home/rstudio/hatena_blog
+      - ".:/home/rstudio/hatena_blog"
+    environment: 
+      PASSWORD: ${PASSWORD}
