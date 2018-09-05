@@ -15,4 +15,10 @@ RUN set -x && \
     "tidyverse/ggplot2" \
     "uribo/sessiondiverge" \
     "uribo/jpmesh" \
-    "uribo/jpndistrict"
+    "uribo/jpndistrict" && \
+  Rscript -e 'webshot::install_phantomjs()'
+
+ENV PATH $PATH:/root/bin/phantomjs
+
+RUN set -x && \
+  mv /root/bin/phantomjs /usr/local/bin/phantomjs
