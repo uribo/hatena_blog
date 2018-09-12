@@ -10,13 +10,16 @@ RUN set -x && \
   install2.r --error \
     extrafont \ 
     kokudosuuchi \
-    magick && \
+    magick \
+    rnaturalearth && \
   installGithub.r \
     "tidyverse/ggplot2" \
+    "ropenscilabs/rnaturalearthhires" \
     "uribo/sessiondiverge" \
     "uribo/jpmesh" \
     "uribo/jpndistrict" && \
-  Rscript -e 'webshot::install_phantomjs()'
+  Rscript -e 'webshot::install_phantomjs()' && \
+  rm -rf /tmp/downloaded_packages/ /tmp/*.rds
 
 ENV PATH $PATH:/root/bin/phantomjs
 
