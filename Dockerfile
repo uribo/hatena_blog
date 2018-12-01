@@ -6,8 +6,11 @@ RUN set -x && \
     fonts-font-awesome \
     libmagick++-dev && \
   apt-get clean && \
-  rm -rf /var/lib/apt/lists/* && \
+  rm -rf /var/lib/apt/lists/*
+
+RUN set -x && \
   install2.r --error \
+    estatapi \
     extrafont \ 
     kokudosuuchi \
     magick \
@@ -17,7 +20,8 @@ RUN set -x && \
     "ropenscilabs/rnaturalearthhires" \
     "uribo/sessiondiverge" \
     "uribo/jpmesh" \
-    "uribo/jpndistrict" && \
+    "uribo/jpndistrict" \
+    "yonicd/carbonate" && \
   Rscript -e 'webshot::install_phantomjs()' && \
   rm -rf /tmp/downloaded_packages/ /tmp/*.rds
 
