@@ -1,0 +1,159 @@
+---
+title: "DockerイメージでGitHub上のRパッケージのインストールを行う際の注意: GitHub Personal Access Tokenの設定"
+author: "Shinya Uryu"
+date: "2019年1月10日"
+output: 
+  md_document:
+    variant: markdown_github
+---
+```{r}
+options(knitr.duplicate.label = TRUE)
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, dpi = 300, fig.width = 6, fig.height = 5)
+```
+
+[前回の記事](https://uribo.hatenablog.com/entry/2019/01/11/082000)では、CRANやそれ以外のGitリポジトリからRパッケージのインストールを行うremotesパッケージの特徴と、GitHubで管理されたパッケージのインストールを行う際のAPIに関する注意を書きました。
+
+今回はさらにニッチな内容だと思いますが、DockerでRStudio Serverを利用する際に、GitHub上のパッケージをインストールする必要がある時のtipsとなります。昨年末、仕事納め間際にハマってしまった障害とその解決策の備忘録でもあります。
+
+## 要約
+
+- DockerコンテナでGitHubからインストールするRパッケージがある場合もGitHub Personal Access Token (PAT) の設定が必要
+- Dockerコンテナ上のRStudio Serverを立ち上げる際は`/usr/local/lib/R/etc/Renviron`にPATを保存する
+- PATをバージョン管理の対象、dockerイメージ間で共有しないようにするには`.env`と`args`コマンドを活用する
+
+[f:id:u_ribo:20190115063923p:plain]
+
+## 背景
+
+普段の分析作業はDockerで起動するRStudio Server上で行なっています（過去のブログ記事を参考）。そのコンテナイメージはrockerプロジェクトをベースにしており、プロジェクトに応じて、追加で必要なパッケージを[littler](https://github.com/eddelbuettel/littler)のコマンドを使って次のように記述し、インストールを行うようにしています[^1]。
+
+```
+FROM rocker/tidyverse:3.5.2
+
+RUN set -x && \
+  install2.r --error \
+    jpmesh && \
+  installGithub.r \
+    uribo/fgdr
+```
+
+`install2.r`はCRAN上のパッケージ名、`installGithub.r`でGitHubのリポジトリを指定しています。
+
+このうち、`installGithub.r`は、**remotes**パッケージの関数`install_github()`の機能をコマンドライン上で[実行可能にしたものです](https://github.com/eddelbuettel/littler/blob/14e5bb4effd01d3c39b23ef35dba9f10a8902ace/inst/examples/installGithub.r)。
+
+また、RStudio Server以外のコンテナイメージを併用することがあるため`docker-compose.yml`による管理を行なっています。環境変数"PASSWORD"は、下記の記事で書いた通り、RStudio Serverへのログインに使われるパスワードです。パスワード自体は`.env`ファイルに記述されており、他者と共有しないようにしています。
+
+```yaml
+version: "3"
+services:
+  rstudio:
+    build:
+      context: "."
+    ports:
+      - "8787:8787"
+    volumes:
+      - ".:/home/rstudio/hatena_blog"
+    environment: 
+      PASSWORD: ${PASSWORD}
+```
+
+https://uribo.hatenablog.com/entry/2018/08/31/220521
+
+### 問題の発生
+
+いつもこのようにして、パッケージの変更があるたびにDockerfileをビルドし直していたのですが、ある日パッケージの追加を行なって再度ビルドを行おうとした時、次のエラーメッセージを吐いてコンテナの起動に失敗してしまいました。
+
+```
+Error: HTTP error 403.
+  API rate limit exceeded for XXX.XXX.XX.XXX. (But here's the good news: Authenticated requests get a higher rate limit. Check out the documentation for more details.)
+
+
+  Rate limit remaining: 0/60
+  Rate limit reset at: 2018-12-28 00:08:59 UTC
+
+
+  To increase your GitHub API rate limit
+  - Use `usethis::browse_github_pat()` to create a Personal Access Token.
+  - Use `usethis::edit_r_environ()` and add the token as `GITHUB_PAT`.
+```
+
+これは、前回の記事でも取り上げたように、`installGithub.r`の実行時に認証を行わないAPI利用の上限に達してしまったことが原因です。問題解決のためには、GitHub Personal Access Tokenを環境変数に定義して、認証付きのAPI実行に切り替える必要があります。
+
+## 対策
+
+いくつかの方法があるかと思いますが、次の処置をとりました。大きくまとめると次の2ステップです。
+
+- `docker-compose.yml`でのargsコマンドを利用した
+    - GitHub PATは `.env` に記述
+- `Dockerfile`での環境変数の定義
+
+まず`docker-compose.yml`でargsコマンドによるGitHub PATの環境変数の指定と`dockerfile`中で環境変数の参照、Renvironファイルへの記述を行えるようにしておきます。具体的には`docker-compose.yml`のbuild以下を次のように変更します。
+
+```
+  build:
+    context: "."
+    args:
+      - GITHUB_PAT=<取得したGitHub PAT>
+```
+
+続いてdockerfileには次の行を追加します。
+
+```
+ARG GITHUB_PAT
+
+RUN set -x && \
+  echo "GITHUB_PAT=$GITHUB_PAT" >> /usr/local/lib/R/etc/Renviron
+```
+
+これにより、`docker-compose.yml`で定義した環境変数がDockerイメージでも利用できるようになり、適切なGitHub PATを渡しておけば問題を回避することができます。しかし、これらのファイルはGitHubでも管理しているため、個人用のPATをベタ打ちするのは好ましくありません。そこでRStudio Serverへのログイン同様、`.env`でPATの記述を行うようにしました。
+
+```
+GITHUB_PAT=<取得したGitHub PAT>
+```
+
+`docker-compose.yml`の方も`.env`の値を参照するように変更して完了です。最終的には次のようになります。
+
+```yaml
+version: "3"
+services:
+  rstudio:
+    build:
+      context: "."
+      args:
+        - GITHUB_PAT=${GITHUB_PAT}
+    ports:
+      - "8787:8787"
+    volumes:
+      - ".:/home/rstudio/hatena_blog"
+    environment: 
+      PASSWORD: ${PASSWORD}
+```
+
+```
+FROM rocker/tidyverse:3.5.2
+
+ARG GITHUB_PAT
+
+RUN set -x && \
+  echo "GITHUB_PAT=$GITHUB_PAT" >> /usr/local/lib/R/etc/Renviron
+
+RUN set -x && \
+  install2.r --error \
+    jpmesh && \
+  installGithub.r \
+    uribo/fgdr && \
+  rm -rf /tmp/downloaded_packages/ /tmp/*.rds
+```
+
+これでプライベートリポジトリを含むGitHub上のパッケージをインストールしたイメージファイルが立ち上がります。
+
+## 参考記事
+
+- https://qiita.com/friedaji/items/c1894821a2c49395cfd7
+- https://qiita.com/Targityen/items/2717511ca9f12c1c667f
+
+[^1]: rockerプロジェクトのコンテナイメージにはlittlerを使ったコマンドが用意されています。 https://github.com/rocker-org/rocker/blob/6bd244a33892af6e3ee797342b3f4ca9a6a559a0/r-base/Dockerfile#L51-L55
+
