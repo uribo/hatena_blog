@@ -12,3 +12,4 @@
 */output/*
 .env
 .Rapp.history
+.DS_Store

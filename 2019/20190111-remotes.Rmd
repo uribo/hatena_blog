@@ -1,0 +1,75 @@
+---
+title: "RパッケージをGitHubからインストールする場合はPersonal Access Tokenを取得・設定しておきましょう"
+author: "Shinya Uryu"
+date: "2019年1月11日"
+output: 
+  md_document:
+    variant: markdown_github
+---
+```{r}
+options(knitr.duplicate.label = TRUE)
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, dpi = 300, fig.width = 6, fig.height = 5)
+```
+
+RのパッケージはCRANやBioconductorといったリポジトリに加えて、GitHubやGitLab、Bitbucketといった分散型Gitリポジトリサービス（リモートリポジトリ）からインストールすることが可能です。リモートリポジトリには開発版のものや、CRAN等に公開されていないパッケージがあり、これらを利用する場面がしばしばあります。こうしたリモートリポジトリからRパッケージのインストールを行う方法は複数ありますが、**remotes**パッケージはこれらを含めたRパッケージをインストールするのに適した下記の機能を備えており便利です[^1]。
+
+- 依存パッケージの追加インストール
+- GitHub、GitLab、BitBucketを含めたGitリポジトリからのインストール (`install_github()` など)
+- ローカルファイルやURL指定でのインストール (`install_local()`, `install_url()`)
+- CRANパッケージのバージョンを指定したインストール (`install_version()`)
+
+remotesパッケージの使い方に関しては[RAEDME](https://cran.r-project.org/web/packages/remotes/readme/README.html)に詳しく書かれていますので、ここではその説明を省略し、remotesパッケージでGitHub上のパッケージをインストールする`install_github()`での認証設定について記述します。
+
+## install_github()の挙動
+
+前述の通り、`install_github()`はGitHubのリポジトリ名とリポジトリ管理ユーザの名称を引数に渡してパッケージのインストールを行う関数です。
+
+```{r, eval = FALSE, echo = TRUE}
+library(remotes)
+
+install_github("<user>/<repository>")
+```
+
+この関数を実行するとGitHub API (remotesパッケージが利用しているのはv3) を経由して必要なファイルがダウンロードされます。このAPIは、公開リポジトリに対しては誰でもリクエストできるようになっていますが、非公開のプライベートリポジトリやアカウントに関する操作を行う際は認証が必要になります。認証を行わないAPIの実行では次の制約があります。
+
+- 一時間あたり60回のリクエスト
+- プライベートリポジトリの参照や操作は不可 (パブリックリポジトリのみが対象)
+
+`install_github()`では、この認証情報を引数`auth_token`で制御しています。初期値には`github_pat()`を実行した際の値が使われます。試しに`remotes:::github_pat()`を実行してみましょう。
+
+```{r, eval = FALSE, echo = TRUE}
+# github_pat()はパッケージ内部で利用される関数のため:::演算子を使って呼び出します。
+remotes:::github_pat()
+# NULL
+```
+
+上記のように`NULL`が返却された場合は認証が行われていないことを示します。そのため、短時間に大量のインストールを行う場合やプライベートリポジトリ上のパッケージをインストールする時には`install_github()`の実行は失敗します。
+
+## GitHub PATの取得と設定
+
+では認証を行い、`install_github()`の機能を十分に活用できるようにしましょう。`install_github()`の認証は、Personal Access Token (PAT)という形態を採用しています。そのためGitHubからトークンを発行する必要があります。これには`usethis::browse_github_pat()`を使います。
+
+この関数を実行するとウェブブラウザが起動し、トークンに対して許可する操作をチェックした状態の次の画面が表示されます。
+
+usethisパッケージの`browse_github_pat()`は、`install_github()`で必要な操作に対してあらかじめチェックがついた状態を用意してくれているので、問題がなければ`Generate Token`を押して次に進みます。すると、トークン発行画面に遷移します。ここで表示された値がPersonal Access Tokenとなります。この値は一度しか表示されないので、コピーを忘れずにしておきましょう（もし忘れてしまった場合はPersonal Access Tokenを削除して再発行して同じ手続きをとればOKです）。
+
+コピーした値を`install_github(..., auth_token = "<コピーしたPAT>")`に渡して実行すれば認証つきの状態でGitHub APIへのリクエストが行われます。しかし、実行のたびにトークンを記述するのは面倒臭く、セキュリティの面でもよろしくないため、次に環境変数として扱えるようにしておきましょう。
+
+`remotes:::github_pat()`は環境変数に定義されている"GITHUB_PAT"の値をPATとして扱います。これにより`install_github()`を行った際にPATの使い回しが可能になり、PATの値自体は表示されなくなります。
+
+環境変数の定義は`Sys.setenv(GITHUB_PAT = "<コピーしたPAT>")`としておけば良いですが、セッションを終了しても環境変数を保持しておくために`Renviron`や`.Rprofile`に記述しておくのが良いです。ここでは`.rprofile`に記述する方法を紹介しますが、`Renviron`の場合も同様の記述でOKです。
+
+`usethis::edit_r_profile()`を実行します。Rプロジェクトごとに異なる`.Rprofile`を用意している場合は`usethis::edit_r_profile(scope = "project")`にしてください。関数を実行すると`.Rprofile`を編集するための画面またはタブが表示されます。
+
+ここに`Sys.setenv()`とGITHUB_PATを設定する記述をして保存します。これにより、次のセッションから環境変数GITHUB_PATが有効になります。
+
+```{r}
+Sys.setenv(GITHUB_PAT = "<コピーしたPAT>")
+```
+
+Rを再起動して、`remotes:::github_pat()`にPATの値が表示されればGitHub PATの設定は完了です。次回は、このGITHUB_PATをDockerで起動したRStudio Serverへ反映させる方法を書く予定です。
+
+[^1]: devtoolsパッケージに備わっている機能から、パッケージのインストールを行う関数を独立、発展させたパッケージです。devtools 2.0.0ではremotesパッケージに加えて、いくつかの機能をまとめた関数がdevtoolsから独立してパッケージ化されました。 ref) https://cran.r-project.org/web/packages/devtools/news/news.html
