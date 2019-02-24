@@ -1,0 +1,161 @@
+---
+title: "否定条件: stringr 1.4.0で追加された引数negageとpurrrを使った文字列以外のさまざまなデータへの適用例"
+author: "Shinya Uryu"
+date: "2019年2月23日"
+output: 
+  md_document:
+    variant: markdown_github
+---
+```{r}
+options(knitr.duplicate.label = TRUE)
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, dpi = 300, fig.width = 6, fig.height = 5)
+```
+
+## 要約
+
+- 条件に一致しない要素に対して`TRUE`を返す否定条件をさまざまなデータ型に適用する例を紹介します
+    - 文字列データに対しては stringrパッケージ(バージョン1.4.0以降)またはstringiのnegate引数を利用する
+    - purrrパッケージの`negate()`、`compose()`を用いることで、文字列以外のデータにも適用可能な否定処理を実行できる
+- これらの関数を使った処理では、`!`演算子を使わずに記述できるためパイプ処理とも親和性が高い
+
+## はじめに
+
+ある条件のもとで一致しない、つまり偽 (`FALSE`)となる要素を 真 (`TRUE`) とするためにRでは`!`演算子を使います。
+
+```{r}
+# 1は2と等しくない
+1 != 2
+```
+
+また、`grep(invert = )`のように否定条件の指定が引数で与えられている関数もあります。
+
+```{r}
+# 文字列dを含まない要素の位置を参照する
+grep("d", c("abc", "def", "ghi"), invert = TRUE)
+```
+
+この記事ではこのような`!`演算子を使わない否定条件の処理をさまざまなデータに対して実行する例を紹介します。まずは先日(2月10日)、バージョン1.4.0に更新されたRでの文字列処理の定番である**stringr**パッケージによる文字列データへの適用例をみます。続いて、文字列以外の多様なデータ形式に否定処理を行うために**purrr**パッケージの関数を使った処理を示します。
+
+## stringr 1.4.0に実装されたnegate引数
+
+stringr 1.4.0では、`str_detect()`などの主要な関数に引数negateが[追加されました](https://www.tidyverse.org/articles/2019/02/stringr-1-4-0/)。この引数は与えられたパターンに一致しない要素を検出する機能をもちます。引数には論理値を指定し、`TRUE`を与えた際に否定条件を成立させます。
+
+3つの要素を含んだ文字列ベクトルについて、"a"を含まない"melon"が `TRUE` となる処理を行います。まずは否定ではない、つまり"a"を含む要素に`TRUE`を返す処理を確認します。
+
+```{r}
+library(stringr)
+
+fruits <- c("banana", "apple", "melon")
+
+str_detect(fruits, "a")
+```
+
+目的はこの逆です。引数negateに`TRUE`を与えて結果をみましょう。
+
+```{r}
+str_detect(fruits, "a", negate = TRUE)
+```
+
+否定条件に一致する要素である"melon"に対して`TRUE`を得ることができました。
+
+これまでの否定条件は、`!`演算子を処理の先頭に置くことで指定していました。しかしこの形式だと次のようにパイプ処理と相性がいまいちなように思えます。
+
+```{r}
+!str_detect(fruits, "a")
+
+# パイプ処理で否定処理を記述する例
+# 1. {}で無名関数化する
+fruits %>% {
+  !str_detect(., "a")
+}
+# 2. purr::map_lgl()を使う
+fruits %>% 
+  purrr::map_lgl(~ !str_detect(.x, "a"))
+```
+
+negate引数が実装されたことで適用する関数の中で処理が完結するようになります。negate引数はもともとstringiパッケージにあったもの[だそうです](https://twitter.com/yutannihilation/status/1098720982078910465)(初めて知りました)。stringrパッケージに[実装してくれた](https://github.com/tidyverse/stringr/pull/259) id:yutannihilation さんに感謝です。
+
+```{r}
+# stringiにもnegate引数は存在する
+stringi::stri_detect(fruits, regex = "a", negate = TRUE)
+```
+
+## purrrパッケージで否定条件を成立させる
+
+さて、文字列の場合にはstringrでnegate引数を利用すれば良いという話でした。それでは、文字列以外でnegateのような否定の処理を行うにはどうすれば良いでしょうか。シンプルな答えは`!`演算子を使うことです。ですがここではpurrrパッケージに用意された`negate()`と`compose()`による否定処理を紹介します。
+
+```{r}
+library(purrr, warn.conflicts = FALSE)
+```
+
+まずは`negate()`です。この関数は、関数を生成する特殊な関数です。具体的には**記述した条件を否定する関数**を生成します。引数.pに**成立させたくない条件**を記述します。例えば`NULL`でない要素を与えた時に`TRUE`を返してほしい際は下記のようにします。
+
+```{r}
+fn <- 
+  negate(is.null)
+
+fn
+```
+
+`!is.null(x)`として機能する関数ができました。引数に値を渡して実行結果を確認してみましょう。
+
+```{r}
+# is.null(x) が成立せず FALSE となります
+fn(x = NULL)
+
+list(NULL, 1, "a") %>% 
+  purrr::map_lgl(~ fn(x = .x))
+```
+
+便利ですね。では次は`netage()`を使って**数値が素数でないか**を判定したいと思います。primesパッケージに素数かどうかの判定をする`is_prime()`があるのでそれを用います。
+
+```{r}
+# 1から6までの実数を用意します
+nums <- 
+  seq(1L, 6L)
+```
+
+primesには素数である場合に`TRUE`となる関数が用意されています。その否定処理は次のように`!`で実現できますが`negate()`で同じ処理ができます。
+
+```{r}
+primes::is_prime(nums)
+
+nums %>% 
+  negate(~ primes::is_prime(.x))()
+```
+
+ここで注意するのが`negate(.p = )()`のように括弧が後ろに付いている点です。これはパイプ処理をしているせいもありますが、この書き方は見慣れません (パイプ処理を使わない場合は `negate(~ primes::is_prime(.x))(nums)` とします)。この書き方が嫌な場合は文字列の処理で示したように`map_lgl()`で記述することも可能です。
+
+```{r}
+nums %>% 
+  map_lgl(
+  negate(~ primes::is_prime(.x)))
+```
+
+`map()`で各要素に対して処理を適用するようにしているのでやや冗長に感じます。それではpurrrでの否定処理の2番目の例として`compose()`を紹介しましょう。`compose()`は`(g•f)(x) = g(f(x))`として機能する合成関数を生成する関数です。この合成関数の機能を使うことで、関数を作る必要が生じますが、コードを見通しの良いものにできます。
+
+```{r}
+is_false_prime <- 
+  # 作成する関数 (unmatch_str_a()の第一引数に与えた値が str_detect)
+  compose(`!`, ~ primes::is_prime(x = .x))
+# negate()を使う場合は compose(negate(~ primes::is_prime(.x)))
+is_false_prime(nums)
+```
+
+論理値ではなく、マッチしなかった値そのものがほしい場合は`keep()`で要素を取り出せます。stringrで文字列データを扱う場合は`str_subset()`です。
+
+```{r}
+nums %>% 
+  keep(negate(~ primes::is_prime(.x)))
+
+nums %>% 
+  keep(is_false_prime)
+
+fruits %>% 
+  str_subset("a", negate = TRUE)
+```
+
+それでは！
