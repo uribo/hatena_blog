@@ -1,0 +1,90 @@
+---
+title: "ggplot2でのfacet時にstripを図の下部に配置する方法と注意点"
+author: "Shinya Uryu"
+date: "2019年2月24日"
+output: 
+  md_document:
+    variant: markdown_github
+---
+```{r}
+options(knitr.duplicate.label = TRUE)
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, dpi = 300, fig.width = 6, fig.height = 5)
+library(ggplot2)
+theme_set(theme_gray(base_family = "IPAexGothic"))
+```
+
+ggplot2の`facet_wrap()`や`facet_grid()`で、ある変数の水準ごとにパネルを分割した描画を行うと、分割の基準となっている変数名がパネルの上部に表示されます。これにはstripという名前がついています。"strip"の辞書を引くと「(金属の)薄板」の意味だそうです（確かに分割した様子は板っぽい...）。
+
+stripの位置は、**`facet_wrap()`や`facet_grid()`それぞれ異なる方法**で調整できます。まずは`facet_wrap()`の例を示します。次のように`facet_wrap(strip.position = "bottom")`とすることでstripを下部に移動させることができます。できますが...。
+
+```{r}
+library(ggplot2)
+library(gghighlight)
+
+p_base <- 
+  ggplot(mpg, 
+       aes(displ, hwy, color = class)) +
+  geom_jitter() +
+    gghighlight(use_direct_label = FALSE,
+                unhighlighted_colour = "#99999930") +
+  hrbrthemes::scale_color_ipsum() +
+  guides(color = FALSE)
+
+p_strip_bottom <- 
+  p_base +
+  facet_wrap(vars(class),
+             ncol = dplyr::n_distinct(mpg$class),
+             strip.position = "bottom")
+```
+
+```{r, fig.width = 8, fig.height = 3.6}
+p_strip_bottom +
+  ggtitle('strip.position = "bottom"だけではx軸の数値ラベルの上部にきてしまう')
+```
+
+「違う、そうじゃない」。
+
+stripがx軸のラベルより上にきており、肝心の値がわかりにくくなってしまっています。
+
+そもそもstripの位置は図の上部にあったほうが良いんじゃ...という気がしますが、ここでは諸事情により下部に配置する必要があるとして話を続けます。
+
+次にもう一つのfacetである`facet_grid()`でstrip位置を調整します。こちらは引数switchがラベルの位置指定に使われており、NULL (初期値), "x", "y", "both"のいずれかを与えます。デフォルトではstripの配置はパネルの上部・右側ですが、"x"の時は、縦方向にパネルを分割したstripの位置を下部に、"y"が与えられた時には横方向に分割されたstripを左側に配置します。また縦・横両方向にラベルを与える場合でstripを下部・左側にするには"both"を与えます
+
+```{r, fig.width = 8, fig.height = 3.6}
+p_base +
+  facet_grid(cols = vars(class), switch = "x") +
+  ggtitle('switch = "x"でもx軸の数値ラベルの上部にきてしまう')
+```
+
+この問題を解決し、x軸の下にstripを表示するには、下記のように`theme(strip.placement = "outside")`でstripを外側に配置する指定を追加します。これは`facet_wrap()`、`facet_grid()`のいずれで作成した場合でも共通です。
+
+```{r, fig.width = 8, fig.height = 3.6}
+p_strip_bottom + 
+  # strip.placementは "inside" (初期値) または "outside"が指定可能
+  theme(strip.placement = "outside",
+        strip.background = element_blank())
+```
+
+整理すると、
+
+- stripの位置を変更するには
+    - `facet_wrap()`では`strip.position = `
+    - `facet_grid()`では`swith = `
+- 下部に配置したstripを移動するには`theme(strip.placement = "outside")`
+
+とfacetの処理により異なり、さらに`theme()`で調整が必要なのでややこしいです。
+
+## 参考
+
+https://atusy.github.io/presentation/tokyor073/tokyor073-multi-ggplot2.html#/
+
+facetについての全般的な話題はこれを見ておけば大体OKだと思います。逆引き的に参照してもよし。
+
+https://notchained.hatenablog.com/entry/2016/10/15/134938 
+
+`facet_wrap(strip.position = )`と`facet_grid(swith = )`の話題に触れられています。
+
+それでは!
