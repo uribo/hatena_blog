@@ -1,0 +1,145 @@
+---
+title: "ggplot2::geom_sf()での緯度経度のラベルを調整する"
+author: "Shinya Uryu"
+date: "2019年3月2日"
+output: 
+  md_document:
+    variant: markdown_github
+---
+```{r}
+options(knitr.duplicate.label = TRUE)
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, dpi = 300, fig.width = 6, fig.height = 2.8)
+# library(ggplot2)
+# theme_set(theme_gray(base_family = "IPAexGothic"))
+
+library(sf)
+library(ggplot2)
+
+nc <- 
+  system.file("shape/nc.shp", package = "sf") %>% 
+  st_read(as_tibble = TRUE, quiet = TRUE)
+
+p_base <- 
+  ggplot() +
+  geom_sf(data = nc)
+```
+
+## 要約
+
+- `ggplot2::geom_sf()`のデフォルトで表示される緯度経度の軸は桁数が揃っていないことがある
+- `scales::degree_format()`で桁数の調整が可能
+    - 最新のバージョン(1.0.0)では実装されておらず、開発版をインストールして利用する
+    - scalesを使わない方法も紹介
+
+## はじめに
+
+```{r fig_ggplot_default, include=FALSE}
+p_base
+```
+
+```{r, ref.label="fig_ggplot_default"}
+```
+
+
+ggplot2で地理空間データを描画すると、両軸のラベルに緯度経度の値が表示されます。下記に示すように、たった2つの関数で地図を表示できて便利なのですが、この図のY軸、緯度の表示が"36.5°N", "36°N"と有効数字の桁数が異なっているのが気になります。
+"36.5°N", "36.0°N"のように桁数を合わせたいところです。また、日本語での「北緯」や「東経」、「西経」というラベルも使いたい場面があるでしょう。今回はそのような際に役立つ、`geom_sf()`の軸ラベルの表示を変更して桁数を揃える方法と表示方法を任意のものに調整する例を紹介します。
+
+```{r, message = FALSE}
+library(sf)
+library(ggplot2)
+
+nc <- 
+  system.file("shape/nc.shp", package = "sf") %>% 
+  st_read(as_tibble = TRUE, quiet = TRUE)
+
+p_base <- 
+  ggplot() +
+  geom_sf(data = nc)
+```
+
+```{r, eval = FALSE, echo = TRUE}
+p_base # 上に示した図が出力されます
+```
+
+### 注意書き
+
+今回扱うscalesパッケージのバージョンは、2019年3月現在、CRANに登録されている1.0.0とは異なる、開発版の1.0.0.900です。次のリリースには実装される機能だと思いますが、今すぐ試す方は下記のコマンドでGitHubからパッケージをインストールする必要があります。
+
+```{r, eval = FALSE, echo = TRUE}
+remotes::install_github("r-lib/scales")
+```
+
+## 桁数を揃える
+
+[scalesパッケージ](https://github.com/r-lib/scales)を使う方法、使わない方法の2つを紹介します。まずはscalesに追加される`degree_format()`を使った例になります。こちらの方が簡単、自由度が高いです。
+
+#### scales::degree_format関数
+
+ggplot2で軸の表示を変更するには`scale_*()`を使います。今回、地図の軸は連続値なので、`scale_*_continuous()`を利用します。真ん中のアスタリスクは、調整したい軸の位置を指定することになり、X軸なら`scale_x_continuous()`、Y軸なら`scale_y_continuous()`です。
+
+今回はY軸に対して操作を行うので、`scale_y_continuous()`を実行します。次のように、ラベルを調整する引数labelsに`scales::degree_format()`を与えます。`degree_format()`は次のPRによって追加された関数で、「度」を表示するのに利用されますが、他にいくつかのオプションを備えています。
+
+https://github.com/r-lib/scales/pull/178
+
+```{r}
+p_base +
+  scale_y_continuous(labels = scales::degree_format(unit = "N", 
+                                                    accuracy = 0.1))
+```
+
+ここで桁数を揃えるのに使われるのがaccuracy引数です。初期値は1ですが、0.1としておくと小数点第一位までの値を表示するようになります。今回はこの値で桁数が揃います。
+
+また`geom_sf()`でのデフォルトでは、経緯度のラベルを自動的に調整してくれますが`scale_y_continuous()`でラベルに対する操作を加える際はunit引数で経緯度に用いるラベルを指定しなくてはいけません。何も指定しないと北緯を示す"N"は表示されないので注意です。
+
+
+#### ggplot_builtオブジェクトに対して変更を加える
+
+もう一つのアプローチが、`ggplot_build()`を使ってグラフの要素に対して修正を加えることで対処する方法です。
+
+```{r, eval = FALSE, echo = TRUE}
+library(grid)
+p <-
+  ggplot_build(p_base)
+
+# ちょっと深いところにある要素を修正します
+p$layout$panel_params[[1]]$graticule <-
+  p$layout$panel_params[[1]]$graticule %>%
+  dplyr::mutate(degree = sprintf("%.1f", abs(degree)),
+         degree_label = paste0(degree, "\u00b0", type))
+
+# 修正したggplot_buildオブジェクトをgtableとして扱えるようにします
+p_fixed <-
+  ggplot_gtable(p)
+
+grid.newpage()
+grid.draw(p_fixed)
+```
+
+X軸の西経がマイナスの値として扱われてしまうのを`abs()`で絶対値に変換している点に注意です（経度が-180から180の値を取ることに起因しています。地図の範囲が東経であれば不要です）
+
+## 緯度経度の表示を任意のものに変更する
+
+`geom_sf()`では緯度経度を示す記号に"NEWS"が使われます。これをNならば北緯、Wは東経という具合に変換したいこともあるかと思います。そのような場合にも`scales::degree_format()`で調整可能です。具体的には次のようにします。なお、西経に同じ処理をする場合、先述の理由と同じく、絶対値として処理しておくために一度関数を作っておきます。
+
+```{r}
+degree_abs <- function(x) {
+  scales::degree_format(prefix = "西経",
+                        sep = "",
+                        unit = "",
+                        suffix = paste0("", "度"),
+                        accuracy = 0.1)(abs(x))
+}
+
+p_base +
+  scale_y_continuous(labels = scales::degree_format(prefix = "北緯",
+                                                    sep = "",
+                                                    unit = "",
+                                                    suffix = paste0("", "度"),
+                                                    accuracy = 0.1)) +
+  scale_x_continuous(labels = degree_abs)
+```
+
+できました。それでは！
