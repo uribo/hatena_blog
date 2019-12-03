@@ -15,6 +15,7 @@ RUN set -x && \
 
 RUN set -x && \
   install2.r --error \
+    carbonate \
     estatapi \
     extrafont \ 
     kokudosuuchi \
@@ -22,10 +23,8 @@ RUN set -x && \
     rnaturalearth && \
   installGithub.r \
     "ropenscilabs/rnaturalearthhires" \
-    "uribo/sessiondiverge" \
     "uribo/jpmesh" \
-    "uribo/jpndistrict" \
-    "yonicd/carbonate" && \
+    "uribo/jpndistrict" && \
   Rscript -e 'webshot::install_phantomjs()' && \
   rm -rf /tmp/downloaded_packages/ /tmp/*.rds
 
