@@ -1,0 +1,119 @@
+---
+title: "ggplot2の凡例を制御するためのオプション show.legend"
+author: "Shinya Uryu"
+date: "2019年12月12日"
+output: 
+  md_document:
+    variant: markdown_github
+---
+```{r}
+options(knitr.duplicate.label = TRUE)
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, dpi = 300, fig.width = 6, fig.height = 5)
+```
+
+べ、別に最近知ったわけじゃないんだからね！
+
+## geom_*(show.legend = FALSE) で凡例を非表示にする
+
+ggplot2での作図で凡例を制御する関数として `guides()`があります。この関数内でグラフに使われる凡例のタイトルや並びを調整可能です。例えば、irisデータセットのSpeciesごとに色分けをした図の凡例の並びを入れ替えるには次のようにします。`guides(color = guide_legend(reverse = TRUE))` がその処理を指定している箇所です。
+
+```{r}
+library(magrittr)
+library(ggplot2)
+library(patchwork)
+theme_set(theme_gray(base_size = 8, base_family = "IPAexGothic"))
+p <-
+  iris %>% 
+  ggplot(aes(Species, Sepal.Length, color = Species)) +
+  geom_boxplot()
+
+p1 <- 
+  p +
+  ggtitle("color = Speciesを指定した時のデフォルト")
+p2 <- 
+  p +
+  guides(color = guide_legend(reverse = TRUE)) +
+  ggtitle("guides()で凡例の並びを変更")
+```
+
+```{r, fig.width=8, fig.height=5}
+p1 + p2 + plot_layout(ncol = 2)
+```
+
+この関数を利用して凡例を非表示にできます。あるいは `guides()` を使わず `theme(legend.position = "none")` でも良いです。
+
+```{r, eval = FALSE, echo = TRUE}
+# 出力結果は省略
+p +
+  guides(color = FALSE)
+```
+
+一方で、凡例を非表示にするためにこの方法を利用すると、一つ使う関数が増えてしまいますし、関数内で指定する引数の値をうっかり忘れてしまうことがあります。私はよく、`color = NULL` とか `color = NA` と間違った指定をしてしまっていました。
+
+そこで、表示しない凡例については、どの種類の図を描画するかを定義する `geom_*()`を実行する段階で指定できる `show.legend` 引数を使うと便利です。例えば先ほどの箱ひげ図、X軸のラベルとしてSpeciesが与えられているので凡例は消そうと思うと次のようにします。
+
+```{r, eval = FALSE, echo = TRUE}
+# 出力結果は省略
+iris %>% 
+  ggplot(aes(Species, Sepal.Length, color = Species)) +
+  geom_boxplot(show.legend = FALSE)
+```
+
+この引数オプション、最近実装された**訳ではなく**、昔からあります。ドキュメントにもしっかり書かれています（既定値はNA）。便利な機能はすでに用意されている...そういう気持ちでドキュメントを読み込んでいきたいと思いましたまる
+
+## sfオブジェクトの凡例を変更する
+
+ggplot2の凡例についてもう一つ。次は地理空間データを描画する際に利用する `geom_sf()` での話です。
+
+`geom_sf()`でなんらかの凡例を表示させた際、デフォルトでは fill を指定した時のように四角形の枠が表示されます。
+
+```{r}
+library(sf)
+sf_nc <- 
+  system.file("shape/nc.shp", package = "sf") %>% 
+  st_read() %>% 
+  .[seq.int(3), ]
+
+ggplot() + 
+  geom_sf(data = sf_nc, aes(fill = NAME))
+```
+
+対象の地物がポリゴンだと良いですがポイントやラインのデータだとモヤっとした気持ちになります。こうした凡例の種類を調整するのにも先ほどの `show.legend` が使えます。凡例の種類を枠ではなく点にしたいのであれば `show.legend = "point"` を与えます。
+
+```{r, fig.width=8, fig.height=5}
+sf_point <- 
+  st_sample(sf_nc, 10) %>% 
+  st_sf()
+
+sf_point$size <- 
+  as.character(sample(10))
+
+p1 <- 
+  ggplot() +
+  geom_sf(data = sf_point, aes(color = size)) +
+  ggtitle("geom_sf()のデフォルト")
+
+p2 <- 
+  ggplot() +
+  geom_sf(data = sf_point, aes(color = size), 
+          show.legend = "point") +
+  ggtitle("show.legend = で凡例の種類を変更")
+
+p1 + p2 + plot_layout(ncol = 2)
+```
+
+よかったですね。
+
+また、この場合の凡例としては不適切ですが、 "line" を指定して線の凡例を得も得られます。
+
+```{r, eval = FALSE, echo = TRUE}
+# 出力結果は省略
+ggplot() +
+  geom_sf(data = sf_point, aes(color = size), 
+          show.legend = "line")
+```
+
+Enjoy!
