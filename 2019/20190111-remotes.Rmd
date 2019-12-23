@@ -4,7 +4,7 @@ author: "Shinya Uryu"
 date: "2019年1月11日"
 output: 
   md_document:
-    variant: markdown_github
+    variant: gfm
 ---
 ```{r}
 options(knitr.duplicate.label = TRUE)
