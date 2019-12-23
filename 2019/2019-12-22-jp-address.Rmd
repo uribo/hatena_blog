@@ -1,0 +1,422 @@
+---
+title: "郵便番号データをtidyにする挑戦"
+author: "Shinya Uryu"
+date: "2019年12月22日"
+output: 
+  md_document:
+    variant: gfm
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, dpi = 300, fig.width = 6, fig.height = 5)
+```
+
+日本人が頻繁に遭遇するデータ操作を効率的に行うための[`{zipangu}`](https://cran.r-project.org/web/packages/zipangu/index.html)パッケージ、想定よりも多くの人が喜んでくれたようで、私としても嬉しく思っています。
+
+https://twitter.com/u_ribo/status/1201403465357856770
+
+記事の最後にプロジェクトの協力者を募集したら数名からの[反応があり](https://github.com/uribo/zipangu/issues/2)、また[新機能の要望](https://github.com/uribo/zipangu/issues/5)も挙げられました。
+ありがとうございます。
+
+さて、次のリリースでは郵便番号の処理を効率的に行う機能を実装する計画でいます。
+具体的には日本郵便が提供する郵便番号csvファイル（以下、郵便番号ファイル）をRで読み込む関数と、郵便番号の検索および住所情報を返却する機能です。
+
+https://github.com/uribo/zipangu/issues/5
+
+https://github.com/uribo/zipangu/pull/6
+
+ファイルの読み込みに関してはすでにmasterブランチへマージされています。
+そして郵便番号検索の方もここで読み込んだファイルを利用すれば良かろうと思っていたのですが、こんなご意見をいただきました。
+
+どうもこの郵便番号ファイルには問題があるそうです。探ってみましょう。
+
+```{r, eval =FALSE, echo=TRUE}
+install.packages("remotes")
+remotes::install_github("uribo/zipan")
+```
+
+```{r, warning=FALSE, message=FALSE, results='hide'}
+library(dplyr)
+library(zipangu)
+library(stringr)
+```
+
+```{r, include=FALSE}
+source("~/Documents/projects2019/jp-address/R/split_seq_address.R")
+```
+```{r, eval = FALSE, echo = TRUE}
+# read_zipcode() が郵便番号ファイルを読み込むための関数です。
+# 提供されている3種類(読み仮名データの促音・拗音を小書きで表記しないもの、読み仮名データの促音・拗音を小書きで表記するもの、ローマ字)の住所の表記形式、事業所のcsvファイルに対応します
+# path引数にzipファイルが置かれるURLまたはコンピュータ上のファイルパスを指定します
+df <- 
+    read_zipcode(path = "https://www.post.japanpost.jp/zipcode/dl/oogaki/zip/ken_all.zip",
+               type = "kogaki") %>% 
+  # 市区町村コード、郵便番号、住所に関する列、重複の判定のために「丁目を有する町域の場合の表示」の列を選んでおきます
+  select(jis_code, zip_code, prefecture, city, street, is_cyoumoku)
+```
+
+```{r, include = FALSE}
+df <- 
+    read_zipcode("~/Documents/projects2019/jp-address/data-raw/japanpost_kogaki/KEN_ALL.CSV", 
+                 type = "kogaki") %>% 
+  select(jis_code, zip_code, prefecture, city, street, is_cyoumoku)
+```
+
+例えば郵便番号`066-0005`のレコードを検索すると次のように3件のデータが返却されます。同じ郵便番号、市町村なのになぜ？となりますが、street列で表示している町域名がおかしいことに気がつきます。
+
+```{r, eval = FALSE, echo = TRUE}
+df %>% 
+  filter(zip_code == "0660005")
+```
+
+```{r, echo = FALSE}
+df %>% 
+  filter(zip_code == "0660005") %>% 
+  knitr::kable()
+```
+
+
+なんと、これは郵便番号ファイルの仕様です。[データの説明書き](https://www.post.japanpost.jp/zipcode/dl/readme.html)に次の記述があります。
+
+> 全角となっている町域部分の文字数が38文字を越える場合、また半角となっているフリガナ部分の文字数が76文字を越える場合は、複数レコードに分割しています
+
+このままでは検索用の関数を用意する際に問題になります。
+
+また、これ以外にも数々の問題点があり、これまでに多くの方が記事にまとめてくださっています。
+この行の分割をはじめとしていくつかの問題への対策方法が書かれている記事も見受けられました。
+
+http://bleis-tift.hatenablog.com/entry/20080531/1212217681
+
+https://togetter.com/li/352382
+
+一方で、次の2点に関する具体的な処理方法については見つけることができませんでした。
+
+- `藤野(400、400−2番地)` など「、」で複数の住所がある --> `藤野400`、`藤野400-2番地` の行を分ける
+- `大通西(1〜19丁目)` のように住所が省略される --> `大通西1丁目`、`大通西2丁目`、`大通西3丁目`、... `大通西19丁目` を独立させる
+
+以下に示すように、元のデータはtidy[^1]ではありません。
+扱うデータがtidyであることを心がける身としては放っては置けない問題です。
+
+[^1]: 効果的なデータ分析を行いやすくするためのデータの持ち方を指す概念。参考: https://www.jstatsoft.org/article/view/v059i10
+
+```{r, eval=FALSE, echo=TRUE}
+df %>% 
+  filter(zip_code %in% c("0050840", "0600042"))
+```
+
+```{r, echo=FALSE, results = 'asis'}
+knitr::kable(df %>% 
+  filter(zip_code %in% c("0050840", "0600042")))
+```
+
+このデータをtidyにするならこうかなと思います (大通西の住所は一部省略)
+
+```{r, eval = TRUE, echo = FALSE}
+tibble::tibble(
+  jis_code = rep(c("01106", "01101"), each = 2),
+  zip_code = rep(c("0050840", "0600042"), each = 2),
+  prefecture = "北海道",
+  city = rep(c("札幌市南区", "札幌市中央区"), each = 2),
+  street = c("藤野400", "藤野400-2番地", "大通西1丁目", "大通西2丁目")
+) %>% knitr::kable()
+```
+
+そんなわけで前置きが長くなりましたが、こうした問題の解決に取り組んでいます。
+**いくつかの課題に関しては解決できそうと目処が立つ、一方で完璧には程遠いことを感じてきた**ので一旦整理しておきます。
+
+## 住所の重複と複数行に分割される問題への対処
+
+住所の重複と複数行に分割される問題には、これまでに書かれている記事を参考に次の関数を用意することで対処しました。読み込んだ郵便番号データに次の関数を適用することで同一住所の行に正しく住所が格納されるようになります（複数行の先頭と終了の行番号を特定し、その間の町域名を結合するだけ）。
+
+```{r}
+zip_tidy_prep <- function(df) {
+  df_duplicate <-
+    df %>%
+    dplyr::count(zip_code, city, street, sort = TRUE) %>%
+    dplyr::filter(n > 1) %>%
+    dplyr::transmute(zip_code, city, street, duplicate = TRUE)
+  if (nrow(df_duplicate) >= 1) {
+    df <-
+      df %>%
+      dplyr::left_join(df_duplicate,
+                       by = c("zip_code", "city", "street")) %>%
+      dplyr::group_by(zip_code, city, street) %>%
+      dplyr::slice(1L) %>%
+      dplyr::ungroup() %>%
+      dplyr::select(-duplicate)    
+  }
+    df_fix <- 
+      df %>% 
+      tibble::rowid_to_column()
+  multiple_rows_start <-
+    df_fix %>%
+    dplyr::filter(stringr::str_detect(street, "\\(") & stringr::str_detect(street, "\\)$", 
+                                                                           negate = TRUE)) %>%
+    dplyr::pull(rowid)
+  multiple_rows_end <-
+    df_fix %>%
+    dplyr::filter(stringr::str_detect(street, "\\)$") & stringr::str_detect(street, "\\(", 
+                                                                            negate = TRUE)) %>%
+    dplyr::pull(rowid)
+  df_merge_rows <-
+    purrr::map2_dfr(
+      multiple_rows_start,
+      multiple_rows_end,
+      ~ df_fix[.x:.y, ] %>%
+        dplyr::mutate(street = paste(street, collapse = "")) %>%
+        dplyr::slice(1L))
+  df_fix <-
+    df_fix %>%
+    dplyr::anti_join(df_merge_rows %>%
+                       dplyr::select(jis_code, zip_code, city),
+              by = c("jis_code", "zip_code", "city"))
+  df_fix <-
+    df_fix %>%
+    dplyr::bind_rows(df_merge_rows)
+  df_fix %>% 
+    dplyr::arrange(rowid)
+}
+```
+
+```{r}
+df_tidying <- 
+  df %>% 
+  zip_tidy_prep()
+```
+
+まずは住所の重複の確認から。重複のあるデータは `is_cyoumoku` が2つの値を持っているのですが、単純に郵便番号と住所を紐付ける目的であればユニークに扱ってしまうのが良いです。
+
+```{r}
+df %>% 
+  distinct(jis_code, street, is_cyoumoku, .keep_all = TRUE) %>%
+  count(jis_code, zip_code, street, sort = TRUE) %>% 
+  filter(n > 1)
+
+df_tidying %>% 
+  distinct(jis_code, street, is_cyoumoku, .keep_all = TRUE) %>%
+  count(jis_code, zip_code, street, sort = TRUE) %>% 
+  filter(n > 1)
+
+df_tidying %>% 
+  select(-is_cyoumoku) %>% 
+  filter(zip_code %in% c("5810027", "6730012"))
+```
+
+一行ずつのデータになっていますね。
+
+では続いて、複数行にまたがって記録される町域名です。
+
+```{r}
+# streetの値だけを取り出します
+addr <- 
+  df_tidying %>% 
+  filter(zip_code == "0660005") %>% 
+  pull(street)
+addr
+```
+
+ここまでは難なくでした。言わば通常のデュエル。ここからが**闇のゲーム**の始まりです。
+
+## 「、」で区切られた住所を分割する
+
+冒頭にあげたように、tidyデータの理念に基づくと町域名の「、」ごとに行を分けるのが妥当な処理です。これをやってみましょう。まずは愚直に `str_split()`で「、」の位置で要素を分解します。
+
+```{r}
+addr %>% 
+  str_split("、", simplify = TRUE)
+```
+
+要素に分解できたものの、次は共通の住所文字列をつけたり（ここでは先頭および末尾に「協和」と「番地」を与えることになります）、余分な括弧を取り除く作業が残ります。それを行う関数も書きました。
+
+```{r}
+addr %>% 
+  split_inside_address()
+```
+
+他のデータでも見てみましょう。今度は末尾に「番地」がつかない例です。
+
+```{r}
+split_inside_address(str = "天王(追分、追分西、上北野、長沼)")
+```
+
+これをデータフレームに適用します。
+
+```{r, eval = FALSE, echo=TRUE}
+# 元の町域名を上書きします
+df_tidying %>% 
+  filter(zip_code %in% c("0660005")) %>% 
+  mutate(split_street = purrr::pmap(.,
+                                           ~ split_inside_address(..6))) %>%
+  tidyr::unnest(cols = split_street) %>%
+  select(-street) %>%
+  rename(street = split_street) %>%
+  select(names(df_tidying))
+```
+
+```{r, results="asis", eval=TRUE, echo=FALSE}
+df_tidying %>% 
+  filter(zip_code %in% c("0660005")) %>% 
+  mutate(split_street = purrr::pmap(.,
+                                           ~ split_inside_address(..6))) %>%
+  tidyr::unnest(cols = split_street) %>%
+  select(-street) %>%
+  rename(street = split_street) %>%
+  select(names(df_tidying)) %>% 
+  knitr::kable()
+```
+
+よしよし、と思いきや、我々（私）は次の問題に直面するのです！
+
+### 京都市内の通り名
+
+京都市内で伝統的に使われる住所の表記形式として「通り名」があります。「上る」や「東入」などがつくやつ。
+
+https://ja.wikipedia.org/wiki/%E4%BA%AC%E9%83%BD%E5%B8%82%E5%86%85%E3%81%AE%E9%80%9A%E3%82%8A
+
+この表記は当然郵便番号データにも記録されています。
+
+```{r}
+addr_historical <- 
+  df_tidying %>% 
+  filter(str_detect(street, "上る"), zip_code == "6048042") %>% 
+  pull(street)
+addr_historical
+```
+
+ここでは表記上では「中之町」が末尾に来るようにしなくてはいけません。[マピオンのウェブページ](https://www.mapion.co.jp/zip/26104/6048042-001/)ではキチンんと処理されています。そのため、先ほどの処理を適用すると次のようになるのでダメです。
+
+```
+#> [1] "中之町寺町通錦小路下る"   "中之町寺町通四条上る"     "中之町新京極通錦小路下る" "中之町新京極通四条上る"   "中之町錦小路通寺町東入"  
+#> [6] "中之町裏寺町通蛸薬師下る" "中之町裏寺町通四条上る" 
+```
+
+そこで京都市内で使われる通り名かを判定する関数を用意し、通り名の住所であれば「中之町」のような街名を末尾に移動させるようにしました。
+
+```{r}
+is_jhistorical_street(addr_historical)
+is_jhistorical_street(addr)
+```
+
+```{r}
+split_inside_address(addr_historical)
+```
+
+これで単純なパターンであれば対応可能となりました。次に待ち構えるのは中ボスです。
+
+### 複雑な町域名
+
+実は先ほどの`split_inside_address()`が対応できる括弧内の文字列の処理は、括弧が一つの場合のみです。次のように丸括弧と鉤括弧が使われていると正しく処理できません。
+
+```{r}
+df_nest_bracket <- 
+  df_tidying %>% 
+  filter(str_detect(street, "「.+、.+」|「.+」、"))
+
+df_nest_bracket %>% 
+  pull(street)
+```
+
+```{r}
+# 鉤括弧の「、」で分割してしまうので良くない
+split_inside_address(df_nest_bracket$street[1])
+```
+
+これについては「鉤括弧内の『、』については区切り文字のルールから除外する」正規表現を書けば良いのですが、私の技術力不足でできていません。幸い、こうしたデータの件数は9つと少ないので、今の所は該当データを発見したら鉤括弧以外の「、」を「_」に変更し、共通名称をつけた名前に変換する処理を取っています。
+
+```{r, eval = FALSE, echo = TRUE}
+street_fix_keys <-
+  c(`葛巻(第40地割「57番地125、176を除く」〜第45地割)` = paste0("葛巻",
+                                               c("第40地割「57番地125、176を除く」",
+                                                 "第41地割",
+                                                 "第42地割",
+                                                 "第43地割",
+                                                 "第44地割",
+                                                 "第45地割"), collapse = "_"))
+```
+
+```{r}
+recode(df_nest_bracket$street[1], !!!street_fix_keys)
+```
+
+これにより`tidyr::separate_rows()`の行方向への分割が適用可能となります。
+
+```{r}
+df_nest_bracket %>% 
+  mutate(street = street %>% 
+           recode(!!!street_fix_keys)) %>% 
+  tidyr::separate_rows(street, sep = "_")
+```
+
+## 「〜」によって省略される住所を復元する
+
+郵便番号データをtidyにするための2つ目の条件です。もう一度問題を確認しておきましょう。
+
+```{r}
+addr <- 
+  df_tidying %>% 
+  filter(zip_code == "0600042") %>% 
+  pull(street)
+addr
+```
+
+ここでの「大通西(1〜19丁目)」は「〜」によって省略されています。我々にはこの中に「大通西2丁目」や「大通西18丁目」が含まれていることが推測できますがコンピュータに識別させるのは簡単ではありません。「大通西2丁目」で検索した時にコンピュータこの住所を見つけてもらうための簡単な方法は省略された数値を用意してあげることです。そこで、「〜」によって省略される数値の最小値と最大値の範囲に含まれる数値を住所文字列と組み合わせて復元する以下の関数を用意しました。
+
+```{r}
+split_seq_address(str = addr, split_chr = "〜", prefix = "大通西", suffix = "丁目", seq = TRUE)
+```
+
+区切りが2つだけ、つまり「〜」ではなく「、」で分割される時はこうします。`prefix`と`suffix`引数を用意することで柔軟な住所文字列を作ることが可能となりました。
+
+```{r}
+split_seq_address(str = "吾妻1、2丁目", split_chr = "、", prefix = "吾妻", suffix = "丁目", seq = FALSE)
+```
+
+こうしたデータは多数あり、「丁目」を含むものの他「番地」「線」が使われるものなどバリエーションに富んでいます。
+
+```{r}
+df_abbr <- 
+  df_tidying %>% 
+  filter(stringr::str_detect(street, "\u301c")) %>% 
+  filter(stringr::str_detect(street, "、|−|及び", negate = TRUE)) %>% 
+  filter(stringr::str_detect(street, ".+\u301c.+\u301c", negate = TRUE)) %>% 
+  select(jis_code, zip_code, prefecture, city, street, rowid)
+```
+
+多様なパターンに対応するため、次のようなコードを書きました、がまだ途中です。
+
+```{r}
+df_abbr %>% 
+  separate_street_rows(street, pattern = "丁目", split_chr = "\u301c", suffix = "丁目")
+df_abbr %>% 
+   filter(stringr::str_detect(street, "[0-9]{1,}(丁目|の).+番地", negate = TRUE) &
+         stringr::str_detect(street, "番地")) %>% 
+  separate_street_rows(street, pattern = "番地", split_chr = "\u301c", suffix = "番地")
+```
+
+## 残った課題
+
+ここまで、悪名高い郵便番号データと戦ってきましたが、現在相手にリードされた状況です...。いくつかの課題については対策できたと思いますがまだ満足できていません。もう少し改善が必要です。具体的には以下の3点をどうにかしないといけません。
+
+- コードが煩雑。正規表現がもう少し綺麗に書けると良いのですが。
+- 「以外」、「を除く」、「その他」などのアンチパターン
+- 存在しない住所を除く
+
+特に3つめ「存在しない住所を除く」は手を焼きそうです。最後の処理として「〜」で省略された住所を復元しましたが一方で現実には存在しない住所を生み出してしまった可能性があります。例えば「北海道札幌市南区常盤」に「58番地」は存在しますが、それより小さな「50番地」は存在しません。これは、国内の街区レベル、大字・町丁目レベルの住所を記録した国土数値情報の[位置参照情報ダウンロードサービス](http://nlftp.mlit.go.jp/isj/index.html)提供のデータにもありませんし、[ゼンリンの住所データ](https://www.its-mo.com/search/area/01/106/037/)や[東京大学空間情報科学研究センターのジオコーディングサービス](http://newspat.csis.u-tokyo.ac.jp/geocode/)にも含まれません。
+
+```{r, include=FALSE}
+df_isj_a <- readr::read_rds("~/Documents/projects2019/jp-address/data-raw/isj_2018a.rds")
+```
+
+```{r}
+# 位置参照情報ダウンロードサービス 街区レベルを格納したデータフレーム
+df_isj_a %>% 
+  filter(prefecture == "北海道",
+         str_detect(city, "札幌市南区"),
+         str_detect(street_lv1, "^常盤$")) %>%
+  pull(street_lv3)
+```
+
+未完の状態で終わるため**俺たたエンド**です。これらの問題を解決できた時にまたお会いしましょう！アドバイスがあればください。
+
+俺たちの戦いはこれからだ！
+
