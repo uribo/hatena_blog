@@ -1,0 +1,122 @@
+---
+title: "郵便番号データの操作と祝日判定の機能を追加したzipangu v0.2.0を公開"
+author: "Shinya Uryu"
+date: "2020年1月12日"
+output: 
+  md_document:
+    variant: gfm
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, dpi = 300, fig.width = 6, fig.height = 5)
+```
+
+## zipanguパッケージ0.2.0がCRANに登録されました
+
+<figure class="figure-image figure-image-fotolife">[f:id:u_ribo:20200112092025j:plain]<figcaption>'A Perspective View: The Two Deva Kings Gate of Kinryuzan Temple (Ukie: Kinryuzan niomon no zu)', 1776–1794 by Katsushika Hokusai. Image via <a href='https://www.artic.eduhttps://www.artic.edu/artworks/149104/a-perspective-view-the-two-deva-kings-gate-of-kinryuzan-temple-ukie-kinryuzan-niomon-no-zu'>Art Institute of Chicago</a></figcaption></figure>
+
+昨年バージョン0.1.0をリリースした、日本人が扱う住所や年号、漢数字のデータ操作を楽にするRパッケージ、[{zipangu}](https://github.com/uribo/zipangu)に新しい機能を追加し、バージョン0.2.0としてCRANに登録しました。この記事では0.2.0で扱える新機能を紹介します。表題の通り、郵便番号データの操作と、祝日の判定機能がメインです。
+
+https://uribo.hatenablog.com/entry/2019/12/02/163114
+
+https://cran.r-project.org/web/packages/zipangu/news/news.html
+
+```{r}
+library(zipangu)
+library(dplyr, warn.conflicts = FALSE)
+```
+
+```{r}
+packageVersion("zipangu")
+```
+
+
+## 郵便番号
+
+日本郵便が住所別の郵便番号データを公開しています。このファイルをRに取り込む関数を用意しました。郵便番号ファイルは頻繁に更新されるため、ローカルでのパス指定だけでなくURLによるファイル読み込みも可能となっています。
+
+公開されるファイルには、住所の表記に関していくつかの種類や事業所を含めたデータがありますが、こうしたバリエーションにも対応します。具体的には、type引数に対象ファイルを元に以下の値を与えます。
+
+- `oogaki`: 読み仮名データの促音・拗音を小書きで**表記しない**もの
+- `kogaki`: 読み仮名データの促音・拗音を小書きで**表記する**もの
+- `roman`: 読み仮名データがローマ字
+- `jigyosyo`: 事業所の個別郵便番号
+
+```{r}
+# パッケージに含まれるサンプルデータを読み込みます
+zipcode_file <- 
+  system.file("zipcode_dummy/13TOKYO_kogaki.CSV", package = "zipangu")
+df_oogaki <- 
+  zipangu::read_zipcode(path = zipcode_file, type = "oogaki")
+```
+
+```{r}
+glimpse(df_oogaki)
+```
+
+URLを直接指定する際は type の指定が不要です。
+
+```{r, eval = FALSE, echo = TRUE}
+read_zipcode("https://www.post.japanpost.jp/zipcode/dl/jigyosyo/zip/jigyosyo.zip")
+```
+
+`read_zipcode()` では圧縮ファイルをRに読み込みますが、`dl_zipcode_file()`によりファイルをダウンロードしておくことも可能です。
+
+```{r, eval = FALSE, echo=TRUE}
+dl_zipcode_file(path = "https://www.post.japanpost.jp/zipcode/dl/oogaki/zip/02aomori.zip")
+```
+
+このほか、`is_zipcode()`と `zipcode_spacer()` を用意しました。前者は入力が7桁の郵便番号かどうかをチェック、後者は郵便番号に使われるハイフンを追加・除去するちょっとした関数です。
+
+```{r}
+is_zipcode(7000027)
+is_zipcode("700-0027")
+```
+
+```{r}
+zipcode_spacer("3050053")
+# ハイフンを取り除く際は remove = TRUE を指定します
+zipcode_spacer("305-0053", remove = TRUE)
+```
+
+郵便番号データの公開は貴重ですが「KEN_ALL.csvの闇」と噂される記録のされ方で、実際に扱う場合は処理が面倒です。こうしたデータをtidyにする試みについては前回書いたとおりです。
+
+https://uribo.hatenablog.com/entry/2019/12/22/102452
+
+この課題に関して、id:yutannihilation さんにも取り込んでいただきました。
+
+https://github.com/yutannihilation/jp-address-test
+
+機能要望として郵便番号の検索が[提案されています](https://github.com/uribo/zipangu/issues/5)。どういう形でデータを整形・表示すれば良いのかについて、議論の余地が残ると判断し、完成に至っていません。
+
+
+## 日本の祝日
+
+祝日（国民の休日）判定のための関数を用意しました。これらは{zipangu}パッケージの開発のきっかけとなる{Nippon}で提供されていた機能でもあります。最初のリリースでは実装が追いついていませんでしたので、当初の目的を果たせました（拍手）。
+
+入力に与えた日付が祝日かを返却する `is_jholiday()` と その年の祝日を調べる `jholiday()` があります。
+
+```{r}
+# Nippon::is.jholiday(as.Date("2019-12-23"))
+is_jholiday(date = as.Date("2019-12-23"))
+```
+
+```{r}
+# 今年の祝日を調べる
+jholiday(year = 2020, lang = "jp")
+
+# 天皇誕生日は時代に合わせて変更されます
+jholiday_spec(year = 1988, name = "天皇誕生日", lang = "jp")
+jholiday_spec(2018, "天皇誕生日", lang = "jp")
+jholiday_spec(2020, "天皇誕生日", lang = "jp")
+```
+
+大元の祝日の一覧は[内閣府が配布する](https://www8.cao.go.jp/chosei/shukujitsu/gaiyou.html)csvファイルを参照しています。2020年1月現在に決まっているものなので、将来、祝日の変更があった際はデータを更新しなくてはいけなくなりますが、アーカイブされてしまった{Nippon}で用意されていた機能を復活させたこと、天皇の即位や東京オリンピック開催に関する2019、2020年の祝日の変更に対応できた点は良かったと思います。
+
+また、ここでの作業の副産物として「ある月の第二月曜日」などを調べるための関数 `find_date_by_wday()` ができました。年 (`year`)、月 (`month`)、曜日 (`wday`... デフォルトでは日曜日が1)、週番号 (`ordinal`) を指定して実行します。
+
+```{r}
+find_date_by_wday(year = 2020, month = 1, wday = 2, ordinal = 2)
+```
+
+不具合や新機能の提案は[GitHub issues](https://github.com/uribo/zipangu/issues)または Twitter [@u_ribo](http://twitter.com/u_ribo) までお願いします。

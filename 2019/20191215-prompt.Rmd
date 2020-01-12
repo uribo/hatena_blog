@@ -1,0 +1,112 @@
+---
+title: "ハドリーに倣い、コンソールにブランチ名を表示＆フォントを変える"
+author: "Shinya Uryu"
+date: "2019年12月15日"
+output: 
+  md_document:
+    variant: gfm
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, dpi = 300, fig.width = 6, fig.height = 5)
+```
+
+何事も形から入るタイプの [@u_ribo](https://twitter.com/u_ribo/) です。ネットストーキングに定評があります。
+
+皆さんには憧れの人はいますか？ 憧れの人が使っているものは、なぜか格好良く見えたり、自分も興味を抱くようになった経験はないでしょうか。
+
+さて、憧れの人であるHadleyが登壇していた動画をYouTubeで見ていると気になる箇所がありました。この辺りです。
+
+https://youtu.be/vYwXMnC03I4?t=1539
+
+**...プロンプト[^1]にGitブランチ名を表示させるの格好いい**
+
+[^1]: システムが入力を待っている状態の時に表示される文字や記号です。Rではデフォルトで `>` がプロンプトとして使われます。
+
+見た目重視の私は、憧れの人Hadley WickhamやRStudioチームが使っているものをすぐに真似したくなる癖があります。
+
+調べてみると、どうもHadleyは[自作関数でこの機能を実現可能にしていた](https://twitter.com/hadleywickham/status/238309160192724992)ようです。
+そしてこの機能を含め、コンソールにさまざまな情報を表示させるのはpromptパッケージを使うと簡単に導入できることがわかりました。
+
+https://github.com/gaborcsardi/prompt
+
+MaraさんもTwitterで紹介されていました。
+
+https://twitter.com/dataandme/status/1191717311675277315
+
+雰囲気はこのつぶやきのGif画像を見たらわかると思います。そんなわけで今回は実際に promptパッケージを使ってコンソールをカスタマイズする話です。
+
+## 動機
+
+コンソールに作業中のGitブランチ名を表示させたい理由は単に見た目が格好いいから、だけではありません。
+
+時々、今どのブランチで作業しているのだっけ？となります。また、うっかりコミットするブランチを間違えたりもします。
+そんな無駄やリスクを避けるためにブランチ名が見やすい位置に表示されているととても便利なわけです。
+
+RStudioでもGit管理しているプロジェクトのブランチ名が表示されますが、常には表示されていません。複数あるタブの中からGitタブを選択した状態でない確認できません。GUI RやターミナルでRを実行する場合はこの機能もないので、ブランチの確認は別の方法頼みとなります。なので、コードを書いたり実行するコンソールに表示させておくと常にブランチを意識でき、上記の問題を回避可能です。
+
+## 設定方法
+
+利用するにはパッケージをインストールする必要があります。CRAN未登録なため開発版をGitHubから導入します。
+
+```{r, eval=FALSE, echo=TRUE}
+install.packages("remotes")
+remotes::install_github("gaborcsardi/prompt")
+```
+
+```{r}
+library(prompt)
+```
+
+promptには
+
+- `prompt_*()` で見た目の確認
+- `set_prompt()` で`prompt_*()`の内容を反映させる
+- `suspend()`, `restore()`, `toggle()` で元に戻す
+
+の機能があります。
+
+Gitブランチ名の出力の他、実行したコードのステータス、起動中のRプロセスにおけるメモリ分配量の表示が可能です。
+
+上記の画像は `prompt_fancy` を指定したターミナルでのRの画面です。オシャレですねー。
+
+では本題、Gitブランチ名の表示を反映させましょう。コンソールで次のコマンドを実行します。なおGitバージョン管理をしていないプロジェクトないし作業ディレクトリでは通常のプロンプトが表示されます。
+
+```{r, eval = FALSE, echo = TRUE}
+set_prompt(value = prompt_git)
+```
+
+もちろんmaster以外であればそのブランチ名になります。さらにGitでバージョン管理しているファイルに変更がある状態だとブランチ名の最後に `*` がつきます。
+
+最後に、この設定はRを終了するとなくなってしまうので、起動時に実行されるよう`.Rprofile`に書き込んでおきましょう。`.Rprofile`の編集は`usethis::edit_r_profile()`を使うのが簡単です。
+
+私の設定は次のようになっています。
+
+```{r}
+.First <- function() {
+  if (interactive()) {
+    prompt::set_prompt(value = prompt::prompt_git)
+  }
+}
+```
+
+
+## おまけ: 視認性の高いhackフォントへの変更
+
+Hadleyが登壇している動画を見ていると、彼のRStudio画面で使われているフォントに目が行きます。探してみると、Hadleyは2015年からこのフォントを使っているみたいです（今更気づいてしまった）。
+
+https://twitter.com/hadleywickham/status/654294708001247232
+
+Hack、名前がいいですね。こちらもサクッと真似しましょう。
+
+https://github.com/source-foundry/Hack
+
+Hackに設定したRStudioのキャプチャ画面です。0とO、lと1など、見分けづらい文字の視認性が上がっているように思います。
+
+RStudioではエディタやコンソールで表示されるフォントを好みのものに変更できるので、ぜひ気に入ったものを使ってください。
+フォントをダウンロード・インストールしたら環境設定を開き、AppearanceのEditor Fontに指定するだけです。
+良さげなフォントについては https://blog.nakanishy.com/programming-fonts.html が参考となりました。
+
+ちなみに、これまでは合字に対応した[FireCode](https://github.com/tonsky/FiraCode)や[Inconsolata](https://levien.com/type/myfonts/inconsolata.html)を使っていました。
+
+Enjoy!
