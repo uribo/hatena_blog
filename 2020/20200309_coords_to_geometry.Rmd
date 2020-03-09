@@ -1,0 +1,229 @@
+---
+title: "データフレーム上の緯度と経度データを空間オブジェクトに変換する-sfとgeopandasの例-"
+author: "Shinya Uryu"
+date: "2020年3月9日"
+output: 
+  md_document:
+    variant: markdown_github
+---
+```{r}
+options(knitr.duplicate.label = TRUE)
+
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(eval = FALSE, echo = TRUE)
+```
+
+
+地理空間データを取り扱う際は、はじめにgeojsonやshapeファイルで受け取ることが一般的かと思います。
+あるいはポイントデータの場合には、緯度と経度の値が各列に記録されるcsvなどの表形式のテキストファイルを起点とすることもあります。
+
+前者のような地理空間データであれば、
+R等のアプリケーションで読み込めば自動的に地理空間データとみなしてくれますが、
+後者の場合はそうではありません。
+座標の値はあくまでも数値です。なのでこうしたデータを地理空間データとして扱えるようにするには変換作業が必要となります。
+
+
+今回の記事では、RおよびPythonでのデータフレームに記録された緯度経度の列を変換し、空間オブジェクトとして扱えるようにする方法を紹介します。
+空間オブジェクトの形式として**Rではsf、Pythonではgeopandas**を対象にします。地理空間データに変換しておくと、データの空間的な配置を可視化可能になったり空間演算が可能になり、分析の幅を広げることが期待できます。
+
+
+## 対象データ
+
+csvファイルに緯度と経度の値が格納されているデータの例として、国土交通省 [位置参照情報ダウンロードサービス](http://nlftp.mlit.go.jp/isj/index.html) 提供の平成30年整備 茨城県つくば市の大字・町丁目レベルのデータを利用します。
+
+ファイルをダウンロードしたら、まずはデータフレームとしてcsvファイルを読み込みましょう。
+
+## R
+
+```{r}
+library(sf)
+library(readr)
+```
+
+```{r}
+df_isj08220 <- 
+  read_csv("08220_2018.csv",
+         locale = locale(encoding = "cp932"),
+         col_types = "___c_cdd__") %>% 
+  purrr::set_names(c("city", "street_lv1", "latitude", "longitude"))
+```
+
+データの一部を表示します。latitude, longitudeの列がそれぞれ独立しています。
+
+|city     |street_lv1 | latitude| longitude|
+|:--------|:----------|--------:|---------:|
+|つくば市 |赤塚       | 36.04268|  140.1232|
+|つくば市 |明石       | 36.18207|  140.0537|
+|つくば市 |旭         | 36.11289|  140.0725|
+|つくば市 |安食       | 36.16775|  140.0163|
+|つくば市 |あしび野   | 35.96060|  140.1122|
+|つくば市 |吾妻一丁目 | 36.08153|  140.1129|
+
+
+### sfパッケージ
+
+`sf`パッケージでデータフレームの座標情報を参照してポイントデータに変換するには`st_as_sf()`を使います。
+第一引数に座標列を含む対象のデータフレーム、coords引数の値にX,Y座標となる列名を指定します。この時、座標参照系が判明している際はcrs引数によって明示しておきましょう。
+
+```{r}
+sf_isj08220 <- 
+  df_isj08220 %>% 
+    sf::st_as_sf(coords = c("longitude", "latitude"), crs = 4326)
+```
+
+```{r}
+sf_isj08220
+## Simple feature collection with 299 features and 2 fields
+## geometry type:  POINT
+## dimension:      XY
+## bbox:           xmin: 140.0102 ymin: 35.95047 xmax: 140.1676 ymax: 36.22462
+## epsg (SRID):    4326
+## proj4string:    +proj=longlat +datum=WGS84 +no_defs
+## # A tibble: 299 x 3
+##    city     street_lv1              geometry
+##    <chr>    <chr>                <POINT [°]>
+##  1 つくば市 赤塚         (140.1232 36.04268)
+##  2 つくば市 明石         (140.0537 36.18207)
+##  3 つくば市 旭           (140.0725 36.11289)
+##  4 つくば市 安食         (140.0163 36.16775)
+##  5 つくば市 あしび野      (140.1122 35.9606)
+##  6 つくば市 吾妻一丁目   (140.1129 36.08153)
+##  7 つくば市 吾妻二丁目   (140.1111 36.08443)
+##  8 つくば市 吾妻三丁目    (140.1109 36.0889)
+##  9 つくば市 吾妻四丁目   (140.1183 36.08722)
+## 10 つくば市 天久保一丁目  (140.1087 36.0919)
+## # … with 289 more rows
+```
+
+緯度経度の列を元にポイントデータが作成できました。地図上にマッピングしてみます。
+
+```{r}
+mapview::mapview(sf_isj08220)
+```
+
+### sfheadersパッケージ
+
+続いて`sfheaders`パッケージを使う方法です。`sf::st_as_sf()`の実行結果と同じく、sfオブジェクトを作成します。
+今回は対象がポイントデータなので、`sf_point()`のx,y引数にそれぞれ経度と緯度の列名を与えます。
+この時、keep引数の値をTRUEにしておくとデータフレームの他の列が残ります。FALSEではポイントのgeometry列のみしか残らないため注意です。
+また、座標参照系もこのタイミングでは指定できないため、`sf::st_set_crs()`で定義する必要が生じます。
+
+```{r}
+df_isj08220 %>% 
+  sfheaders::sf_point(x = "longitude", y = "latitude", keep = TRUE) %>% 
+  st_set_crs(4326) %>% 
+  tibble::new_tibble(subclass = "sf", nrow = nrow(.))
+```
+
+```{r}
+sf_isj08220sfh
+## Simple feature collection with 299 features and 2 fields
+## geometry type:  POINT
+## dimension:      XY
+## bbox:           xmin: 140.0102 ymin: 35.95047 xmax: 140.1676 ymax: 36.22462
+## z_range:        zmin: NA zmax: NA
+## m_range:        mmin: NA mmax: NA
+## epsg (SRID):    4326
+## proj4string:    +proj=longlat +datum=WGS84 +no_defs
+## # A tibble: 299 x 3
+##    city     street_lv1              geometry
+##    <chr>    <chr>                <POINT [°]>
+##  1 つくば市 赤塚         (140.1232 36.04268)
+##  2 つくば市 明石         (140.0537 36.18207)
+##  3 つくば市 旭           (140.0725 36.11289)
+##  4 つくば市 安食         (140.0163 36.16775)
+##  5 つくば市 あしび野      (140.1122 35.9606)
+##  6 つくば市 吾妻一丁目   (140.1129 36.08153)
+##  7 つくば市 吾妻二丁目   (140.1111 36.08443)
+##  8 つくば市 吾妻三丁目    (140.1109 36.0889)
+##  9 つくば市 吾妻四丁目   (140.1183 36.08722)
+## 10 つくば市 天久保一丁目  (140.1087 36.0919)
+## # … with 289 more rows
+```
+
+### おまけ: sfからdfに戻す
+
+データフレーム(df)の緯度経度情報をもとにsfオブジェクトを作成する例を述べましたが、反対にsfからデータフレームへ、地理空間情報を取り除く方法も紹介します。
+
+作成したsfオブジェクトに対して`sf::st_drop_geometry()`ないし`sf::st_set_geometry(value = NULL)`でgeometry情報を除外することでdfに変換されます。
+
+```{r}
+sf_isj08220 %>% 
+  st_drop_geometry()
+sf_isj08220 %>% 
+  st_set_geometry(value = NULL)
+```
+
+この時、ポイントの情報も失われるので、データフレームの列として残したい場合は予め列を追加する必要が生じます。
+
+
+```{r}
+sf_isj08220 %>% 
+  dplyr::mutate(coords = purrr::map(geometry,
+                                    ~ as.data.frame(sf::st_coordinates(.x)))) %>% 
+  tidyr::unnest(cols = coords) %>% 
+  st_drop_geometry()
+## # A tibble: 299 x 4
+##    city     street_lv1       X     Y
+##  * <chr>    <chr>        <dbl> <dbl>
+##  1 つくば市 赤塚          140.  36.0
+##  2 つくば市 明石          140.  36.2
+##  3 つくば市 旭            140.  36.1
+##  4 つくば市 安食          140.  36.2
+##  5 つくば市 あしび野      140.  36.0
+##  6 つくば市 吾妻一丁目    140.  36.1
+##  7 つくば市 吾妻二丁目    140.  36.1
+##  8 つくば市 吾妻三丁目    140.  36.1
+##  9 つくば市 吾妻四丁目    140.  36.1
+## 10 つくば市 天久保一丁目  140.  36.1
+## # … with 289 more rows
+```
+
+
+## Python
+
+```{python, eval = FALSE, echo = TRUE}
+import pandas as pd
+import geopandas
+```
+
+```{python, eval = FALSE, echo = TRUE}
+df = pd.read_csv("08220_2018.csv",
+                 encoding = "cp932",
+                 usecols = [3, 5, 6, 7],
+                 dtype  = {'市区町村名': str, '大字町丁目名': str, '緯度': float, '経度': float})
+df = df.rename(columns = {'市区町村名': 'city', '大字町丁目名': 'street_lv1', '緯度': 'latitude', '経度': 'longitude'})
+```
+
+### geopandas
+
+```{python, eval = FALSE, echo = TRUE}
+gdf = geopandas.GeoDataFrame(df, geometry = geopandas.points_from_xy(df.longitude, df.latitude))
+
+gdf.head(10)
+```
+
+|  city  | street_lv1 |longitude|latitude|          geometry          |
+|--------|------------|--------:|-------:|----------------------------|
+|つくば市|赤塚        |    140.1|   36.04|POINT (140.12315 36.042677) |
+|つくば市|明石        |    140.1|   36.18|POINT (140.053737 36.182065)|
+|つくば市|旭          |    140.1|   36.11|POINT (140.072495 36.11289) |
+|つくば市|安食        |    140.0|   36.17|POINT (140.016345 36.167751)|
+|つくば市|あしび野    |    140.1|   35.96|POINT (140.112185 35.960604)|
+|つくば市|吾妻一丁目  |    140.1|   36.08|POINT (140.112938 36.081534)|
+|つくば市|吾妻二丁目  |    140.1|   36.08|POINT (140.111144 36.084425)|
+|つくば市|吾妻三丁目  |    140.1|   36.09|POINT (140.11092 36.088898) |
+|つくば市|吾妻四丁目  |    140.1|   36.09|POINT (140.118261 36.087219)|
+|つくば市|天久保一丁目|    140.1|   36.09|POINT (140.108708 36.091901)|
+
+せっかくなのでこちらもマッピング。
+
+```{python, eval = FALSE, echo = TRUE}
+import geopatra
+m = gdf.folium.plot(zoom = 10)
+m
+```
+
+いいですね！Enjoy!
