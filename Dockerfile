@@ -14,7 +14,8 @@ RUN set -x && \
   echo "GITHUB_PAT=$GITHUB_PAT" >> /usr/local/lib/R/etc/Renviron
 
 RUN set -x && \
-  install2.r --error \
+  install2.r --error --skipinstalled --repos 'http://mran.revolutionanalytics.com/snapshot/2020-01-11' \
+    carbonate \
     estatapi \
     extrafont \ 
     kokudosuuchi \
@@ -22,10 +23,8 @@ RUN set -x && \
     rnaturalearth && \
   installGithub.r \
     "ropenscilabs/rnaturalearthhires" \
-    "uribo/sessiondiverge" \
     "uribo/jpmesh" \
-    "uribo/jpndistrict" \
-    "yonicd/carbonate" && \
+    "uribo/jpndistrict" && \
   Rscript -e 'webshot::install_phantomjs()' && \
   rm -rf /tmp/downloaded_packages/ /tmp/*.rds
 

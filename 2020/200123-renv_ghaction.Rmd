@@ -1,0 +1,134 @@
+---
+title: "GitHub Actionsの実行に必要なパッケージインストールをキャッシュ化して高速化する"
+author: "Shinya Uryu"
+date: "2020年01月23日"
+output: 
+  md_document:
+    variant: gfm
+---
+```{r}
+options(knitr.duplicate.label = TRUE)
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, dpi = 300, fig.width = 6, fig.height = 5)
+```
+
+## 要約
+
+- GitHub Actionsのキャッシュ機能を活用し、Rコードの実行時に依存するパッケージのインストール時間を短縮する
+    - renvを使ったパッケージ管理を行う
+        - renvのキャッシュはOSによりパスが異なるため、GitHub Actionsを実行するOSに応じて変更が必要になる
+    - キャッシュ機能はpipでも使えるため、Pythonによる処理を適用するときも便利
+- GitHub Actionsでrenvのキャッシュを利用するサンプル
+    - pkgdownによるウェブサイトのビルド https://github.com/uribo/easyestat/actions
+    - リポジトリ中のRファイルを実行 https://github.com/uribo/renv_ghaction/actions
+    - OSに応じた設定の例 https://github.com/actions/cache/blob/master/examples.md#r---renv
+
+## はじめに
+
+GitHub上でビルド、テスト、デプロイ等の作業を自動的に行える[GitHub Actions](https://github.com/features/actions)が便利ですね。RやPythonも実行可能なため、データ分析の作業を補助する機能を持たせることもできるかと思います。例えばリポジトリ上のデータが更新されたタイミングで分析コードを走らせてレポートを作成する、といった具合です。GitHub Actionsに関しては、このブログでも id:shinichi-takayanagi さんが記事を書かれています。
+
+https://blog.hoxo-m.com/entry/2019/12/14/174701
+
+そんなGitHub Actionsですが、RやPythonのコードを実行する際にパッケージのインストールが必要になる場合があります。パッケージの追加もコマンドで行えるため、それ自体は問題になりません。しかし処理時間に関してはどうでしょう。パッケージのインストールはGitHub Actionsが動作するたびに実行されます。依存パッケージが多い・頻繁に実行されるジョブでは、ここでの作業がジョブ全体に要する時間の大部分を占める恐れがあります。
+
+そこで、ジョブの過程で取得した依存パッケージを、次回の実行時に再利用できるよう、キャッシュ機能を活用します。これにより実行時間の短縮が期待できます。
+
+https://github.com/actions/cache
+
+公式のExampleを見ると、Pythonであればpip、Nodeはnpmやyarnを利用したパッケージ管理ツールを利用する方法が書かれています。ではRの場合はどうするの?が本記事の話題です。ここではRパッケージのインストール結果をキャッシュ化する例として、Rのパッケージ管理に[renv](https://rstudio.github.io/renv/)を利用して、pkgdownでのウェブサイトの構築を行うワークフローに導入することとします。
+
+pkgdownでのウェブサイトの構築を行うワークフローについては id:yutannihilation さんの下記の記事をご覧ください。
+
+https://notchained.hatenablog.com/entry/2020/01/10/221249
+
+これにより、まずはキャッシュ機能を使わないGitHub Actionsの設定を済ませます。本記事では、ここで用意したyamlファイルを編集します。
+
+## renvでパッケージ管理
+
+renvはRStudioにより開発されているパッケージ管理のためのパッケージです。プロジェクトで利用されるパッケージの依存関係を明らかにし、再現可能な形で環境を構築します。具体的にはプロジェクトで使われるRパッケージとそのバージョン、インストール元の情報等を `renv.lock` ファイルに記録します。
+
+- https://speakerdeck.com/s_uryu/pyrintegration?slide=9
+
+用意したプロジェクトに対して、renvによる管理を有効化しましょう。`renv::init()` を実行すると `renv/`フォルダ、`renv.lock`ファイルが生成されます（`.Rprofile`がない場合はこれも）。
+
+この時、すでにRコードが存在する場合、利用するパッケージおよびその依存パッケージがrenvによりインストールされ、その情報が`renv.lock`に記録されます。パッケージのインストール先は、従来Rが利用する環境（`/usr/local/lib/R/site-library/` や `/Library/Frameworks/R.framework/Versions/{Rバージョン}/Resources/library`）とは異なる環境となります。それはホームディレクトリに近い場所とrenvを有効化したプロジェクトの中です。
+
+最初の「ホームディレクトリに近い場所」は、**OSごとに異なります**。具体的には以下のとおりです。
+
+| プラットフォーム | 場所 |
+|-------------|------|
+| Linix | `~/.local/share/renv` |
+| macOS |  `~/Library/Application Support/renv` |
+| Windows | `%LOCALAPPDATA%/renv` |
+
+renvを使ったプロジェクトでパッケージをインストールするとこのディレクトリにファイルが保存されます（renvのキャッシュを無効化した場合はプロジェクトの中に直接保存されます）。そのため、他のRプロジェクトでパッケージのアップデートを行ってもその影響を受けません。また、依存関係も記述されているので再インストールも安全に行えます。
+
+`renv.lock`に書かれたパッケージを復元するには`renv::restore()`を実行します。そこで一度インストールされたパッケージであればキャッシュからインストールが行われるため、ファイルのダウンロード、ビルドの作業が省略されます。
+
+またプロジェクトで利用するパッケージに変更（追加や更新、削除）があった際は `renv::status()` で確認、必要に応じて `renv::snapshot()` で `renv::lock` を更新しましょう。
+
+詳しい利用方法はここでは省略します。興味のある方は
+
+- https://qiita.com/okiyuki99/items/688a00ca9a58e42e3bfa
+- https://speakerdeck.com/black_tank_top/renv-version-control
+
+をご覧ください。
+
+## GitHub Actionsにrenvを導入する
+
+続いてGitHub Actionsにrenvを導入する方法です。pkgdownによるウェブサイトのビルドを行うActionsではmacOS上で動作します。そこでrenvのキャッシュもmacOS仕様にする必要があります。
+
+`.github/workflows/` にある pkgdownのウェブページをビルドするYAMLファイルにある以下の箇所を変更します。
+
+```yaml
+      - name: Install dependencies
+        run: |
+          Rscript -e 'install.packages("remotes")' \
+                  -e 'remotes::install_deps(dependencies = TRUE)' \
+                  -e 'remotes::install_github("jimhester/pkgdown@github-actions-deploy")'
+```
+
+renvをインストールし、`renv::restore()`で必要なパッケージを復元するようにします。
+
+```yaml
+    - name: Install Package Dependencies
+      run: |-
+        Rscript -e "install.packages('renv')"
+        Rscript -e "renv::restore(confirm = FALSE)"
+```
+
+YAMLを書き換えたら、手元のRコンソールで`renv::install("jimhester/pkgdown@github-actions-deploy")`、`renv::snapshot()`を実行して`renv.lock`を更新します。これは元のYAMLに書かれている`remotes::install_github("jimhester/pkgdown@github-actions-deploy")`の代わりに必要な処理です。
+
+続いてキャッシュの指定です。今回はmacOSで動作させているので、キャッシュのpathもmacOSの`~/Library/Application Support/renv`とします。
+
+```yaml
+    - uses: actions/cache@v1
+      if: startsWith(runner.os, 'macOS')
+      with:
+        path: ~/Library/Application Support/renv
+        key: ${{ runner.os }}-renv-${{ hashFiles('**/renv.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-renv-
+```
+
+[こちら](https://github.com/uribo/easyestat/commit/6ece26199282044f60181f381c9c452c9eeb95c5#diff-3f68805a591611b7440d90ea64e3c446)が編集後のyamlファイルです。
+
+それでは、キャッシュ化の効果を見てみましょう。
+
+https://github.com/uribo/easyestat/actions
+
+依存パッケージのインストールにかかった時間 (`Install Package Dependencies`の部分）を見ます。最初の処理で4分38秒だったのに対し、キャッシュが有効化した2回目はわずか11秒で完了しています。出力を見ても、きちんとキャッシュを利用しているのがわかります。
+
+## 任意のOS、Rコードの実行に必要な依存パッケージを扱う例
+
+renvのキャッシュはOSごとに異なることは述べたとおりです。OSごとのキャッシュ先の指定方法は、[PRを出してマージされた](https://github.com/actions/cache/pull/151)のでGitHub Actionsのcacheリポジトリに記載されています。
+
+https://github.com/actions/cache/blob/master/examples.md#r---renv
+
+また、今回解説したウェブサイト構築以外の用途で利用する際のサンプルとして、以下のリポジトリへのリンクを示しておきます。
+
+https://github.com/uribo/renv_ghaction/
+
+空いた時間を楽しみましょう。 Enjoy!

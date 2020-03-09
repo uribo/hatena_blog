@@ -1,0 +1,267 @@
+---
+title: "標準的な公共交通機関の情報形式 GTFS をRで処理する: gtfsrouter編"
+author: "Shinya Uryu"
+date: "2019年12月5日"
+output: 
+  md_document:
+    variant: gfm
+---
+```{r}
+options(knitr.duplicate.label = TRUE)
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, dpi = 300, fig.width = 6, fig.height = 5)
+```
+
+この記事は[Rアドベントカレンダー2019](https://qiita.com/advent-calendar/2019/rlang)の5日目の投稿です。昨日は id:ando_Roid さんの投稿でした。
+
+## はじめに
+
+今回で4回目となる「[東京公共交通オープンデータチャレンジ](https://tokyochallenge.odpt.org/)」の応募が始まりました。これは公共交通オープンデータやその他のオープンデータを活用したアプリケーションおよびサービスの提案に関するコンテストです。ここでは、鉄道、バス、航空などの交通機関のデータが、GTFS (General Transit Feed Specification) 形式で公開されています。
+
+GTFSは公共交通機関の時刻表と地理的情報に関するオープンフォーマットとして定義されます。リアルタイムの運行情報を反映した動的データ (GTFS Realtime)と、ダイヤ改正等の事情がない限り安定した静的データがあり、GTFSといえば厳密には静的データの方を指します。複数の事業者・交通機関が共通の形式に従ってデータを整備することで、経路探索や時刻表のアプリケーション開発が容易になるのが利点です。そのため、GTFSを提案したGoogle以外でも広く使われています。日本の交通機関に関しても、GTFSをベースに日本独自の交通事情を加味しながら拡張されたフォーマット ([GTFS-JP](https://www.gtfs.jp/)) が整備されています。
+
+さて、今回はそんなGTFSをRで扱ってみようという記事になります。日本語の内容として id:nonki1974 さんが[gtfsrパッケージ](https://github.com/ropensci/gtfsr)の利用方法を [スライドにまとめて](https://speakerdeck.com/nonki1974/gtfsr-package-at-fukuoka-dot-r-number-11)います。なのでここでは、もう一つの例として [gtfsrouterパッケージ](https://github.com/ATFutures/gtfs-router)を使った例を紹介します。
+
+## gtfsrouterパッケージ
+
+https://github.com/ATFutures/gtfs-router
+
+gtfsrouterパッケージの特徴として次の点が挙げられます。
+
+- 2019年12月4日現在、CRANに登録されている。gtfsrは未登録
+    - ただし、**現在はGitHub上の開発版を利用するのが良さそう** (issue [#14](https://github.com/ATFutures/gtfs-router/issues/14) 参照)
+- GTFSデータをdata.tableオブジェクトとして処理するため、処理速度の高速化が期待できる
+- 指定時間内に移動可能な領域 (Isochrone map) の描画ができる
+
+まずはパッケージを利用可能な状態にしておきます。CRANに登録されているバージョンではなくGitHub上の開発版をインストールします。
+
+```{r, eval = FALSE, echo = TRUE}
+install.packages("remotes")
+remotes::install_github("ATFutures/gtfs-router")
+# gtfs_isochrone()を実行する際に必要です
+# install.packages(c("alphahull", "geodist"))
+```
+
+```{r}
+library(magrittr)
+library(gtfsrouter)
+library(data.table)
+```
+
+ここではデモデータとして用意されているベルリン、ブランデンブルクを運行する交通機関と、日本の岡山電気軌道株式会社が運営する岡電バス http://www.okayama-kido.co.jp/bus/ のGTFSデータを処理する例を見ていきます。なお岡電バスのデータは冒頭の「東京公共交通オープンデータチャレンジ」で提供されているものではなく、元々Creative Commonsライセンス4.0のもとで公開されているデータとなります。
+
+データ公開元: https://loc.bus-vision.jp/ryobi/view/opendata.html 
+
+### デモデータの処理
+
+デモデータと岡電バスのデータを分けて解説するのは、現行のCRANバージョンでは、`transfers.txt`が存在しないGTFSデータを読み込むことができないためです。また`transfers.txt`がない場合に実行できないいくつかの関数がありますので留意してください (issue [#14](https://github.com/ATFutures/gtfs-router/issues/14) 参照)。
+
+```{r}
+berlin_gtfs_to_zip()
+tempfiles <- 
+  list.files(tempdir (), full.names = TRUE)
+filename <- 
+  tempfiles [grep ("vbb.zip", tempfiles)]
+```
+
+ここまでがデータを用意するところです。次の`extract_gtfs()`でGTFSの圧縮ファイル（運行情報に関する各種のcsvファイルが含まれる）を読み込みます。
+
+```{r}
+gtfs <- 
+  extract_gtfs(filename)
+```
+
+データはリストに格納されています。どのような情報が格納されているかは、`names()`を使って調べます。また、各データごとの件数が知りたい時は`summary()`を使うと良いでしょう。
+
+```{r}
+names(gtfs)
+summary(gtfs)
+```
+
+読み込んだデータの一例として便情報 `trips` を表示します。この出力から、データがdata.tableオブジェクトであることが確認できます。
+
+```{r}
+head(gtfs$trips)
+class(gtfs$trips)
+```
+
+次に起点と終点を指定して該当するルート情報を抽出します。
+
+```{r}
+# 起点と終点、時刻を選んでデータを抽出
+gtfs_route(gtfs, 
+           from = "Schonlein",
+           to = "Berlin Hauptbahnhof",
+          # 12:02 in seconds
+          start_time = 12 * 3600 + 120,
+          day = "Sunday")
+```
+
+あらかじめ特定の日付や曜日、ルートのパターンを限定しておくことで`gtfs_route()`の処理を高速化が期待できます。
+`gtfs_timetable()`でデータの抽出を行います。
+
+```{r, eval = FALSE, echo=TRUE}
+# 出力結果は省略
+gtfs_sunday <- 
+  gtfs_timetable(gtfs, 
+                  day = "Sunday") 
+
+gtfs_sunday %>% 
+  gtfs_route(from = "Schonlein",
+             to = "Berlin Hauptbahnhof",
+             start_time = 12 * 3600 + 120)
+```
+### data.tableによるGTFSデータの操作
+
+次に岡電バスのGTFSデータを見てみます。ここでは先ほどの`gtfs_route()`や`gtfs_timetable()`を使わずに任意のGTFSデータを紐付ける処理を解説します。先述の通り、`extract_gtfs()`の読み込み結果はdata.tableオブジェクトを格納したリストですので、このデータを処理するためにはdata.tableパッケージの関数についての理解が求められます(dplyrパッケージに慣れている場合は`as.data.frame()`としても良いです）。
+
+zipファイルをダウンロードすることになりますが、このファイルは展開せずにそのまま利用します。
+
+```{r, eval = FALSE, echo = TRUE}
+download.file(url = "http://loc.bus-vision.jp/gtfs/okaden/gtfsFeed",
+              destfile = "data/okaden_GTFS-JP.zip")
+```
+
+```{r, eval = FALSE, echo=TRUE}
+# ここで警告が出ますが問題はありません
+gtfs <- 
+  extract_gtfs("data/okaden_GTFS-JP.zip")
+```
+
+```{r}
+gtfs <- 
+  extract_gtfs("../data/okaden_GTFS-JP.zip")
+```
+
+まずは便情報 `trips` から対象のデータを絞っていきます。`trips`には目的地の停留所名があるので、これを元にします。またroute_id、trip_idの情報が他のデータと紐付けるために必要となります。
+
+```{r}
+# 目的地が「岡山駅」の便を検索
+# route_id ... ルートを識別するためのID
+# trip_id... 旅程を識別するID
+# trip_headsign... 目的地
+dt_trips <- 
+  gtfs$trips[trip_headsign == "岡山駅"][, list(route_id, trip_id, trip_headsign, shape_id)]
+```
+
+「岡山駅」が目的地となるルートは複数あるので、1つのルートのデータを使うことにします。
+
+```{r}
+dt_trips <- 
+  dt_trips[route_id == "10001_1008_1"] %>% 
+  unique(by = "route_id")
+dt_trips
+```
+
+次にルート `routes` から路線名を調べます。
+
+```{r}
+gtfs$routes[route_id == dt_trips$route_id][, list(route_id, route_long_name)]
+```
+
+続いて、停車地の情報を得れるようにします。`stop_times` が trip_idの情報と紐づきます。
+
+```{r}
+dt_stopstimes <- 
+  gtfs$stop_times[trip_id == dt_trips$trip_id][, list(trip_id, stop_id)]
+dt_stopstimes
+```
+
+しかしこれだけではバス停の位置や名前の情報がありません。さらに 停車地 `stops` のデータを参照する必要が生じます。
+
+```{r}
+dt_stops <-
+  gtfs$stops[stop_id %in% dt_stopstimes$stop_id][, list(stop_id, stop_name, stop_lat, stop_lon)]
+dt_stops
+```
+
+これで「大学病院線」の停車地の情報が用意できました。
+
+今度は車両が通過する経路を作りましょう。経路の情報は `shapes` にあり、便情報とはshape_idで繋がります。
+
+```{r}
+dt_shapes <- 
+  gtfs$shapes[shape_id == dt_trips$shape_id][, list(shape_pt_lon, shape_pt_lat)]
+dt_shapes
+```
+
+もう一つ、曜日をベースとして停留地を探す処理の例を示します。
+
+```{r}
+trip_ids <-
+  gtfs$trips[.(gtfs$calendar[.(1),
+                             on = c("monday")]),
+             on = "service_id"][, trip_id] %>%
+  unique()
+
+dt_okaden_monday <-
+  merge(gtfs$stop_times[.(trip_ids),
+                        on = .(trip_id)] %>%
+          .[, -c("stop_headsign", "pickup_type", "drop_off_type")],
+        gtfs$stops[, c("stop_id", "stop_name", "stop_lat", "stop_lon")],
+        by = "stop_id")
+# 並び替え
+setorder(dt_okaden_monday, trip_id, stop_sequence)
+dt_okaden_monday
+```
+
+
+
+ややこしさもありますが、理解すれば使いやすいデータだと思います。
+
+## RでGTFSデータを扱う際のTips
+
+ちょっとしたtipsです。
+
+### 連続値になっている時刻の変換
+
+通過時刻 `stop_times` などに記録される arrival_time は実数になっています。これだと時刻がわかりにくいので、HH:MM:SS形式に変換しておくと確認が楽になります。これには`hms::as_hms()`が利用できます。
+
+```{r}
+min(dt_okaden_monday$arrival_time)
+# 時刻表データに記録される最初と最後の時刻を表示
+hms::as_hms(range(dt_okaden_monday$arrival_time))
+```
+
+### sfオブジェクトへの変換
+
+GTFSには、バスの停留所やルートを構成するポイントの情報が記録されています。gtfsrouterやgtfsrパッケージで読み込んだデータも、こうした緯度経度の情報はデータフレームの列に格納されています。そのため、地図上にマッピングしたり地理的な解析を行う際は地理空間オブジェクトへの変換が必要となります。ここでは、先ほどdata.tableを操作して得たデータを元にRの地理空間オブジェクトとして普及しているsfへの変換を試みます。POINTデータとして停留所、LINESTRINGの例として路線をそれぞれ扱います。
+
+```{r, message=FALSE}
+library(sf)
+```
+
+```{r}
+sf_okaden_stops <-
+  dt_stops %>%
+  st_as_sf(coords = c("stop_lon", "stop_lat"), crs = 4326)
+sf_okaden_stops
+```
+
+```{r}
+sf_okaden_routes <- 
+  dt_shapes %>% 
+  as.matrix() %>% 
+  st_linestring() %>% 
+  st_sfc(crs = 4326)
+```
+
+geometryだけの情報になりますが、sfcオブジェクトとして扱いたい場合があれば `sfheaders`パッケージの関数を使うのも一つの手段となります。
+
+```{r}
+dt_stops %>% 
+  sfheaders::sfc_point(x = "stop_lon", 
+                       y = "stop_lat")
+```
+
+最後にleaflet上でマッピングしてみましょう。
+
+```{r, eval=FALSE, echo=TRUE}
+mapview::mapview(sf_okaden_stops) +
+  mapview::mapview(sf_okaden_routes)
+```
+
+
+## 参考
