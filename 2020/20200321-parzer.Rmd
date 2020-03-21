@@ -1,0 +1,161 @@
+---
+title: "parzerパッケージで多様な緯度経度の表記を十進数に変換する"
+author: "Shinya Uryu"
+date: "2020年3月21日"
+output: 
+  md_document:
+    variant: markdown_github
+---
+
+```{r setup, include=FALSE}
+options(knitr.duplicate.label = TRUE)
+knitr::opts_chunk$set(eval = TRUE, echo = TRUE)
+```
+
+信頼と実績のrOpenSciから新しいパッケージがCRANに登録されました。parzerパッケージです。
+このパッケージは多種多様な緯度経度の表記形式を処理し、十進数での表記(DEG: Degree)に変換してくれるものです。
+（例えば「139°44’28.8869」を「139.7414」にする）
+
+CRANリリース情報および基本的な関数の紹介はrOpenSciのブログ知りました。ぜひこちらもご覧ください。
+
+https://ropensci.org/technotes/2020/03/19/parzer/
+
+また、私自身も以前に同様の処理を行う方法として[このような記事](https://qiita.com/uri/items/782753eb9113d908b2dc)を書いています。
+ですがparzerパッケージを使うとより簡単に緯度経度座標の表記を修正できます。
+日本語の表記を扱う際には課題が残っているので、その対策を後述します。
+
+まずは基本的な使い方を見ていきましょう。
+
+```{r, eval = FALSE, echo = TRUE}
+install.packages("parzer")
+```
+
+```{r}
+library(parzer)
+```
+
+## パース関数
+
+入力された座標の値を十進数での表記に修正するパース関数は`parse_*()`で整備されています。
+`parse_lat()`、`parse_lon()`はそれぞれlatitude(緯度)、longitude(経度)を処理します。
+
+日本経緯度原点の座標を例にします。
+
+```{r}
+x <-  "E139°44’28.8869"
+y <- "N35°39’29.1572"
+
+parse_lon(x)
+
+parse_lat(y)
+```
+
+パースした結果をマップ上で確認します。せっかくなので国土地理院の地理院タイルを背景に。
+
+```{r}
+library(sf)
+library(leaflet)
+library(sfheaders)
+```
+
+
+```{r, eval = FALSE, echo=TRUE}
+basemap <- 
+  leaflet() %>%
+  addTiles("http://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png",
+           attribution = "<a href='http://maps.gsi.go.jp/development/ichiran.html' target='_blank'>地理院タイル</a>")
+
+sfheaders::sf_point(st_point(c(parse_lon(x), 
+                               parse_lat(y)))) %>% 
+  st_set_crs(value = 6668) %>% 
+  st_transform(crs = 4326) %>% 
+  mapview::mapview(map = basemap)
+```
+
+しっかりと「日本経緯度原点」にポイントが落ちていますね。
+
+`parse_*()`は多様な表現方法に対応しています。
+
+```{r}
+coords <- c(45.23323, "40:25:6N", "40°25’5.994N")
+parse_lat(coords)
+```
+
+`parse_lon_lat()`は二つの引数に同じ長さの経度、緯度のベクトルを与えてデータフレーム形式で結果を返却します。
+
+```{r}
+df <- 
+  data.frame(
+    lon = x,
+    lat = y,
+    stringsAsFactors = FALSE)
+
+parse_lon_lat(df$lon, df$lat)
+```
+
+また度分秒の要素を分解する関数として `pz_*()`があります。以下の例で度分秒それぞれの要素に分解します。
+
+```{r}
+pz_degree(x)
+pz_minute(x)
+pz_second(x)
+```
+
+## 日本語での度分秒の処理
+
+Issueに挙げられていますが、
+現在のバージョン(v0.1.0)ではUnicodeを扱う際には課題があります。
+
+https://github.com/ropensci/parzer/issues/10
+
+具体的には日本語での「東経」「北緯」、「度分秒」を扱う際に問題となります。
+
+```{r}
+x <- "東経139度44分28秒8869"
+y <- "北緯35度39分29秒1572"
+```
+
+
+```{r, eval=FALSE, echo=TRUE}
+x %>% 
+  parse_lon()
+# [1] NaN
+y %>% 
+  parse_lat()
+# [1] NaN
+```
+
+簡単な対策ですが、次のように「度」「分」「秒」を変換しておくと正常にパースできます。
+
+```{r}
+library(stringr)
+x_res <- 
+  x %>% 
+  str_replace("東経", "E") %>% 
+  str_replace_all(c("度" = "\u00b0", "分" = "\u2019", "秒" = "."))
+x_res
+parse_lon(x_res)
+
+y %>% 
+  str_replace("北緯", "N") %>% 
+  str_replace_all(c("度" = "\u00b0", "分" = "\u2019", "秒" = ".")) %>% 
+  parse_lat()
+```
+
+さらに関数化するなら以下のような感じで。
+
+```{r}
+replace_dohunbyo_kanji <- function(x) {
+  str_replace_all(x, c("東経" = "E", "西経" = "W",
+                    "北緯" = "N", "南緯" = "S"), 
+               c("E", "W",
+                 "N", "S")) %>% 
+    str_replace_all(c("度" = "\u00b0", "分" = "\u2019", "秒" = "."))
+}
+
+replace_dohunbyo_kanji(x)
+replace_dohunbyo_kanji(y) %>% 
+  parse_lat()
+```
+
+Enjoy!
