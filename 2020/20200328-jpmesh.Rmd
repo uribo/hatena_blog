@@ -1,0 +1,126 @@
+---
+title: "jpmeshバージョン1.2.0をリリース"
+author: "Shinya Uryu"
+date: "2020年3月28日"
+output: 
+  md_document:
+    variant: markdown_github
+---
+
+```{r setup, include=FALSE}
+options(knitr.duplicate.label = TRUE)
+knitr::opts_chunk$set(eval = TRUE, echo = TRUE)
+```
+
+
+統計調査などで使われる標準地域メッシュをRで扱うjpmeshパッケージのバージョン1.2.0 をCRANにリリースしました。以前のバージョンは1.1.3でした。マイナーアップデートですがいくつかの変更点・新機能がありますので紹介します。
+
+## インストール
+
+2020年3月28日現在、WindowsおよびmacOSでのバイナリ版が用意されていない状況です。これらのOSを利用されている方はインストールをもうしばらくお待ちください。
+
+```{r, eval=FALSE, echo=TRUE}
+install.packages("jpmesh") # v1.2.0
+```
+
+```{r, message=FALSE}
+library(jpmesh)
+library(sf)
+```
+
+
+## メッシュサイズの指定を文字列から数値で行うように
+
+これまでのjpmeshの関数では、メッシュサイズを指定する際に `80km` のような文字列での指定が必要でした。
+
+```{r, eval=FALSE, echo=TRUE}
+meshcode_set(mesh_size = "80km")
+
+coords_to_mesh(141.3468, 43.06462, mesh_size = "500m")
+
+rmesh(1, mesh_size = "1km")
+```
+
+これに対して、今回リリースされたv1.2.0では1kmを1として、すべてのメッシュサイズの指定を数値で行うように変更しました。すなわち、80kmのときは80、500mでは0.5、250mメッシュサイズの場合は0.25です。
+
+上記のコードをv1.2.0で実行する際は以下のようにします。
+
+```{r, eval=FALSE, echo=TRUE}
+meshcode_set(mesh_size = 80)
+
+coords_to_mesh(141.3468, 43.06462, mesh_size = 0.5)
+
+rmesh(1, mesh_size = 1)
+```
+
+## メッシュサイズの変更 - mesh_convert()
+
+次は追加した関数です。入力に与えたメッシュコードを適当なメッシュサイズに変更する `mesh_convert()` を用意しました。メッシュサイズのスケールアップ・スケールダウンが簡単に行えます。
+
+```{r}
+set.seed(1)
+rmesh(1) %>% 
+  mesh_convert(to_mesh_size = 0.25)
+```
+
+スケールダウンの機能を持つ関数として `fine_separate()` がありますが、こちらは変換したいメッシュサイズにするまでに繰り返しの処理が必要になる場合がありました。
+
+```{r, eval=FALSE, echo=TRUE}
+rmesh(1) %>% 
+  fine_separate() %>% 
+  purrr::map(fine_separate) %>% 
+  purrr::reduce(c) %>% 
+  unique()
+```
+
+`mesh_convert()`では 80km (80)から125m (0.125)までのメッシュサイズに対応しており、柔軟にメッシュサイズの変更ができます。
+
+```{r}
+set.seed(2)
+rmesh(1, mesh_size = 1) %>% 
+  mesh_convert(to_mesh_size = 80)
+```
+
+## メッシュコードを変数に含むデータフレームのsf化 - meshcode_sf()
+
+メッシュコードを含むデータフレームを処理することがあります。
+
+```{r}
+set.seed(3)
+df_mesh <- 
+  tibble::tibble(
+    meshcode = rmesh(1, mesh_size = 1) %>% 
+      fine_separate(),
+    value = rnorm(4))
+df_mesh
+```
+ここからメッシュコードのgeometry (polygon) を生成し、sfオブジェクトとして扱うための関数が `meshcode_sf()` です。引数 `mesh_var` にメッシュコードが記録されている変数名を与えて実行します。このとき、dplyrやtidyrで変数を指定するように引用符は必要ありません。
+
+```{r}
+sf_mesh <- 
+  df_mesh %>% 
+  meshcode_sf(mesh_var = meshcode)
+sf_mesh
+```
+
+```{r}
+sf_mesh %>% 
+  st_geometry() %>% 
+  plot()
+```
+
+この機能は自分自身がよく使っていたものなので、実装できて満足しています。
+
+## 次のリリースでは?
+
+jpmeshは現在80kmメッシュから1kmメッシュまでの基準地域メッシュ、500m、250m、125mの分割地域メッシュに対応しています。国内で使われるメッシュコードには他に100mと50mの統合地域メッシュが存在します。これらについてサポートするかが議論されています。
+
+https://github.com/uribo/jpmesh/issues/19
+
+100mメッシュが250mメッシュと同じ桁数になってしまうのでどうにかしないといけません。
+
+また、対象のメッシュコードが人口集中地区(DID)をはじめとした国土政策関係の区域に含まれるかを判定する関数を実装予定でいます。
+
+https://github.com/uribo/jpmesh/issues/43
+
+ご意見あればぜひGitHub もしくは Twitter ([@u_ribo](https://twitter.com/u_ribo))まで。
