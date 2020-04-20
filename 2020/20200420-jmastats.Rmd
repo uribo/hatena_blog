@@ -1,0 +1,222 @@
+---
+title: "気象庁提供の潮位表、過去の気象データをRで読み込む"
+author: "Shinya Uryu"
+date: "2020年4月20日"
+output: 
+  md_document:
+    variant: markdown_github
+---
+
+```{r setup, include=FALSE}
+options(knitr.duplicate.label = TRUE)
+knitr::opts_chunk$set(eval = TRUE, echo = TRUE)
+```
+
+最近、気象庁が提供する各種データをR上で取り扱うパッケージ、jmastatsに新しい関数を追加しました。
+このパッケージはちまちまと更新しており、現在のところCRANへの登録は目指していません。
+ですが便利なパッケージなのでこの場で宣伝しておきます。
+
+https://gitlab.com/uribo/jmastats
+
+今回追加したのは以下の関数です。いずれも気象庁のウェブサイトでダウンロード可能なファイルを読み込むために使います。
+
+- `read_tide_level()`, `pivot_tide_level()`: 潮汐観測資料から潮位表データの読み込み
+- `read_jma_weather()`: 過去の地点気象データを読み込む
+
+この機能を試したい場合、パッケージをGitLab経由（GitHubではありませんので注意）でインストールする必要があります。次のコマンドを実行するとインストールが行われます。
+
+```{r, eval = FALSE, echo = TRUE}
+install.packages("remotes")
+remotes::install_gitlab("uribo/jmastats")
+```
+
+```{r}
+library(jmastats)
+```
+
+次にこれらの関数の使い方を紹介します。
+
+## 潮汐観測資料
+
+[潮汐観測資料](https://www.data.jma.go.jp/gmd/kaiyou/db/tide/genbo/index.php)および[各種潮位データ・品質管理情報](https://www.data.jma.go.jp/gmd/kaiyou/db/tide/sea_lev_var/index_download.php)のページよりダウンロード可能な、
+**毎時潮位**、**満潮・干潮の時刻と潮位**が記録されたテキストファイルを与えて実行します。
+
+ダウンロード済みのローカルファイルのパスを指定しても良いですし、気象庁のURLを直接与えても良いです。また引数による年月、地点の指定も可能です。次の例は、2020年2月の「東京」のデータを対象に実行するものです。
+
+```{r, eval = FALSE, echo = TRUE}
+# ファイルが置かれているパスがわかる場合は直接パスを指定すると良いです。
+#d <- 
+#  read_tide_level("https://www.data.jma.go.jp/gmd/kaiyou/data/db/tide/suisan/txt/2020/TK.txt")
+# path引数以外の引数でデータを指定する場合（こちらは一ヶ月単位のデータになります。）
+d <- 
+  read_tide_level(.year = 2020, .month = 2, .stn = "TK")
+
+d
+#> # A tibble: 29 x 42
+#> hry_00   hry_01   hry_02   hry_03   hry_04   hry_05   hry_06   hry_07   hry_08   hry_09   hry_10
+#> [cm]     [cm]     [cm]     [cm]     [cm]     [cm]     [cm]     [cm]     [cm]     [cm]     [cm]
+#> 1      176      156      143      143      153      172      194      214      229      237      236
+#> 2      195      180      166      160      162      172      188      204      219      230      232
+#> 3      197      190      181      174      173      179      191      204      216      224      228
+#> 4      204      206      204      201      197      194      194      196      203      211      218
+#> 5      197      212      220      223      221      217      212      210      210      215      223
+#> 6      172      196      213      222      225      221      211      199      188      182      183
+#> 7      130      164      197      222      235      234      224      208      192      180      176
+#> 8      112      148      187      224      251      262      258      241      217      196      182
+#> 9       87      120      162      204      240      261      264      250      223      194      172
+#> 10       69       93      134      183      229      263      279      276      256      226      195
+#> # … with 19 more rows, and 31 more variables: hry_11 [cm], hry_12 [cm], hry_13 [cm], hry_14 [cm],
+#> #   hry_15 [cm], hry_16 [cm], hry_17 [cm], hry_18 [cm], hry_19 [cm], hry_20 [cm], hry_21 [cm],
+#> #   hry_22 [cm], hry_23 [cm], date <date>, stn <chr>, low_tide_hm_obs1 <time>, low_tide_level_obs1 [cm],
+#> #   high_tide_hm_obs1 <time>, high_tide_level_obs1 [cm], low_tide_hm_obs2 <time>,
+#> #   low_tide_level_obs2 [cm], high_tide_hm_obs2 <time>, high_tide_level_obs2 [cm],
+#> #   low_tide_hm_obs3 <time>, low_tide_level_obs3 [cm], high_tide_hm_obs3 <time>,
+#> #   high_tide_level_obs3 [cm], low_tide_hm_obs4 <time>, low_tide_level_obs4 [cm],
+#> #   high_tide_hm_obs4 <time>, high_tide_level_obs4 [cm]
+```
+
+潮位の単位がcmで記録されているので、unitsパッケージを使って単位を与えているのが特徴です。
+また、元データは毎時潮位と満潮・干潮の潮位データが一つのファイルになっているので列が多いです（行数は日数に対応）。そのため、jmastatsではこのデータを分離し、縦長のデータフレームに変換する関数 `pivot_tide_level()`を用意しました。
+
+`read_tide_level()`で読み込んだデータを引数に与えて実行します。この関数の返り値は2つのデータフレームを含んだリストです。hourlyが毎時潮位、tideが満潮・干潮の潮位となります。
+
+```{r, eval = FALSE, echo = TRUE}
+d_long <- 
+  d %>% 
+  pivot_tide_level()
+d_long
+#> $hourly
+#> # A tibble: 696 x 3
+#> datetime            stn   tide_value
+#> <dttm>              <chr>       [cm]
+#> 1 2020-02-01 00:00:00 TK           176
+#> 2 2020-02-01 01:00:00 TK           156
+#> 3 2020-02-01 02:00:00 TK           143
+#> 4 2020-02-01 03:00:00 TK           143
+#> 5 2020-02-01 04:00:00 TK           153
+#> 6 2020-02-01 05:00:00 TK           172
+#> 7 2020-02-01 06:00:00 TK           194
+#> 8 2020-02-01 07:00:00 TK           214
+#> 9 2020-02-01 08:00:00 TK           229
+#> 10 2020-02-01 09:00:00 TK           237
+#> # … with 686 more rows
+#> 
+#> $tide
+#> # A tibble: 112 x 6
+#> date       stn   tide_level count time   tide_value
+#> <date>     <chr> <chr>      <chr> <time>       [cm]
+#> 1 2020-02-01 TK    low        1     09:23         238
+#> 2 2020-02-01 TK    high       1     02:33         141
+#> 3 2020-02-01 TK    low        2     21:35         210
+#> 4 2020-02-01 TK    high       2     15:23         155
+#> 5 2020-02-02 TK    low        1     09:45         232
+#> 6 2020-02-02 TK    high       1     03:16         160
+#> 7 2020-02-02 TK    low        2     23:18         198
+#> 8 2020-02-02 TK    high       2     16:23         151
+#> 9 2020-02-03 TK    low        1     10:25         228
+#> 10 2020-02-03 TK    high       1     03:41         173
+#> # … with 102 more rows
+```
+
+せっかくなので可視化してみましょう。
+
+```{r}
+library(ggplot2)
+library(ggforce)
+```
+
+```{r, eval= FALSE, echo = TRUE}
+d_long %>% 
+  purrr::pluck("hourly") %>% 
+  ggplot(aes(datetime, tide_value)) + 
+  geom_line(color = "red") +
+  scale_x_datetime(date_labels = "%m/%d") +
+  theme_light(base_family = "IPAexGothic") +
+  labs(title = "毎時潮位グラフ 2020年2月",
+       subtitle = "東京")
+```
+
+```{r, eval=TRUE, echo=FALSE, fig.width=7, fig.height=5}
+read_tide_level(.year = 2020, .month = 2, .stn = "TK") %>% 
+  pivot_tide_level() %>% 
+  purrr::pluck("hourly") %>% 
+  ggplot(aes(datetime, tide_value)) + 
+  geom_line(color = "red") +
+  scale_x_datetime(date_labels = "%m/%d") +
+  theme_light(base_family = "IPAexGothic") +
+  labs(title = "毎時潮位グラフ 2020年2月",
+       subtitle = "東京")
+```
+
+地点名がわからないときは `tide_station`データセットで見つけることができます。なお、年によって観測地点が変わるのでそこは注意です。
+
+```{r, eval = FALSE, echo = TRUE}
+tide_station
+#> Simple feature collection with 1670 features and 6 fields
+#> geometry type:  POINT
+#> dimension:      XY
+#> bbox:           xmin: 122.95 ymin: 24.28333 xmax: 153.9833 ymax: 45.4
+#> CRS:            EPSG:4326
+#> # A tibble: 1,670 x 7
+#> year  id    stn   station_name address                  type                  geometry
+#> <chr> <chr> <chr> <chr>        <chr>                    <chr>              <POINT [°]>
+#>   1 1997  1     WN    稚内         北海道 稚内市 新港町     フロート式     (141.6833 45.4)
+#> 2 1997  2     AS    網走         北海道 網走市 港町       フロート式 (144.2833 44.01667)
+#> 3 1997  3     HN    花咲         北海道 根室市 花咲港     フロート式 (145.5667 43.28333)
+#> 4 1997  4     KR    釧路         北海道 釧路市 港町       フロート式 (144.3833 42.96667)
+#> 5 1997  5     HK    函館         北海道 函館市 海岸町     フロート式 (140.7333 41.78333)
+#> 6 1997  6     B3    小樽         北海道 小樽市 色内３丁目 音波式              (141 43.2)
+#> 7 1997  7     SH    下北         青森県 むつ市 大字関根   音波式       (141.25 41.36666)
+#> 8 1997  8     HC    八戸         青森県 八戸市 新湊３丁目 フロート式 (141.5333 40.53333)
+#> 9 1997  9     MY    宮古         岩手県 宮古市 日立浜町   フロート式 (141.9833 39.63334)
+#> 10 1997  10    OF    大船渡       岩手県 大船渡市 赤崎町   フロート式   (141.75 39.01667)
+#> # … with 1,660 more rows
+```
+
+## 過去の地点気象データ
+
+jmastatsには、すでにウェブスクレイピングにより気象データを取得する関数 `jma_collect()` がありました。一方でこの関数では地点数が多い・期間が長い場合に
+気象庁のページへの負荷が多くなってしまう問題がありました。
+
+今回追加した `read_jma_weather()` ではデータの用意こそユーザが各自で行う必要がありますが、任意の地点・期間のデータをRで読み込むには便利な関数となっています。
+気象庁からダウンロードしたファイルのフォーマットは https://www.data.jma.go.jp/gmd/risk/obsdl/top/help3.html にあるようにやや煩雑となっていて、すぐに使える形式ではありません。
+`read_jma_weather()`はRでの分析、可視化が素早くできるよう、自動的にデータを整形した形式で読み込みます。
+
+関数を実行する前に対象のデータをダウンロードしておきましょう。 [過去の気象データ・ダウンロード](https://www.data.jma.go.jp/gmd/risk/obsdl/index.php)のページから関心の地点データを取得します。ここでは「つくば（舘野）」の「日平均気温」と「降水量の日合計」について、最近一ヶ月分のデータを用意しました。
+
+```{r, eval = FALSE, echo = TRUE}
+d <- 
+  read_jma_weather("~/Downloads/data.csv")
+#> Selected station: つくば（館野）
+
+#> Parsed with column specification:
+#> cols(
+#>   date = col_character(),
+#>   `つくば（館野）_平均気温(℃)` = col_double(),
+#>   `つくば（館野）_平均気温(℃)_品質情報` = col_double(),
+#>   `つくば（館野）_平均気温(℃)_均質番号` = col_double(),
+#>   `つくば（館野）_降水量の合計(mm)` = col_double(),
+#>   `つくば（館野）_降水量の合計(mm)_現象なし情報` = col_double(),
+#>   `つくば（館野）_降水量の合計(mm)_品質情報` = col_double(),
+#>   `つくば（館野）_降水量の合計(mm)_均質番号` = col_double()
+#> )
+
+dplyr::glimpse(d)
+#> Rows: 31
+#> Columns: 8
+#> $ date                                            <date> 2020-03-20, 2020-03…
+#> $ `つくば（館野）_平均気温(℃)`                   <dbl> 12.9, 11.2, 14.7, 8.5, 6.0, 7.0,…
+#> $ `つくば（館野）_平均気温(℃)_品質情報`          <dbl> 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, …
+#> $ `つくば（館野）_平均気温(℃)_均質番号`          <dbl> 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, …
+#> $ `つくば（館野）_降水量の合計(mm)`               <dbl> 0.0, 0.0, 0.0, 0.0, 1.5, 0.0, 0.0…
+#> $ `つくば（館野）_降水量の合計(mm)_現象なし情報`  <dbl> 0, 1, 1, 0, 0, 1, 1, 0, 0, 0, 1, 0, 0, …
+#> $ `つくば（館野）_降水量の合計(mm)_品質情報`      <dbl> 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8…
+#> $ `つくば（館野）_降水量の合計(mm)_均質番号`      <dbl> 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1…
+```
+
+お試しいただき、改善や機能追加のリクエストをいただけると助かります。
+また、こうしたRパッケージの開発を支援してくださる方も引き続き募集しています。
+
+https://uribo.hatenablog.com/entry/2020/03/27/170257
+
+どうぞよろしくお願いします。
