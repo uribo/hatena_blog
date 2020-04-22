@@ -14,21 +14,16 @@ RUN set -x && \
   echo "GITHUB_PAT=$GITHUB_PAT" >> /usr/local/lib/R/etc/Renviron
 
 RUN set -x && \
-  install2.r --error --skipinstalled --repos 'http://mran.revolutionanalytics.com/snapshot/2020-01-11' \
+  install2.r --error --repos 'http://mran.revolutionanalytics.com/snapshot/2020-04-20' \
     carbonate \
     estatapi \
     extrafont \ 
+    jpndistrict \
+    jpmesh \ 
     kokudosuuchi \
     magick \
-    rnaturalearth && \
+    rnaturalearth \
+    zipangu && \
   installGithub.r \
-    "ropenscilabs/rnaturalearthhires" \
-    "uribo/jpmesh" \
-    "uribo/jpndistrict" && \
-  Rscript -e 'webshot::install_phantomjs()' && \
+    "ropenscilabs/rnaturalearthhires" && \
   rm -rf /tmp/downloaded_packages/ /tmp/*.rds
-
-ENV PATH $PATH:/root/bin/phantomjs
-
-RUN set -x && \
-  mv /root/bin/phantomjs /usr/local/bin/phantomjs
