@@ -1,0 +1,137 @@
+---
+title: "tabularmaps: カラム地図で行政区の大まかな配置を可視化する"
+author: "Shinya Uryu"
+date: "2020年4月22日"
+output: 
+  md_document:
+    variant: markdown_github
+---
+
+```{r setup, include=FALSE}
+options(knitr.duplicate.label = TRUE)
+knitr::opts_chunk$set(eval = TRUE, echo = TRUE)
+```
+
+[カラム地図](https://github.com/tabularmaps/hq)と呼ばれるものがあります。
+これは日本の47都道府県をはじめとした行政区の配置を表上に圧縮表示することで、それぞれの位置関係をわかりやすく伝えるためのプロジェクトです。
+
+![](https://github.com/uribo/tabularmaps/blob/master/man/figures/README-demo_jpn77-2.png?raw=true)
+
+最近では、カラム地図の開発者の一人、福野泰介さん ([@taisukef](https://twitter.com/taisukef)) による[新型コロナウイルス対策ダッシュボード](https://www.stopcovid19.jp/)のページでの「現在患者数 / 対策病床数」の可視化で「カラム地図」を見る機会が増えた人もいるのではないでしょうか。
+
+<blockquote class="twitter-tweet"><p lang="ja" dir="ltr">COVID-19 Japan 新型コロナ対策ダッシュボード<br>厚労省データと、神奈川県が公表した対策病床3,400反映<a href="https://t.co/VNM1ngPG95">https://t.co/VNM1ngPG95</a><br>病床等確保数1,000床＋宿泊療養施設2,400室<a href="https://t.co/kVGJbYMNTx">https://t.co/kVGJbYMNTx</a> <a href="https://twitter.com/hashtag/StopCOVID19JP?src=hash&amp;ref_src=twsrc%5Etfw">#StopCOVID19JP</a> <br>対策病床数のオープンデータ化、お願いします！</p>&mdash; taisukef (@taisukef) <a href="https://twitter.com/taisukef/status/1252571396732928002?ref_src=twsrc%5Etfw">April 21, 2020</a></blockquote> <script async src="https://platform.twitter.com/widgets.js" charset="utf-8"></script>
+
+さて、この「カラム地図」をR言語の中で扱うべく、**tabularmaps**パッケージの開発を進めています。
+
+https://github.com/uribo/tabularmaps
+
+以下、この記事ではtabularmapsの使い方を紹介していきます。
+
+パッケージはCRANには登録されていないため、GitHub経由でインストールを行います。以下のコマンドを実行することでパッケージが利用可能になります。
+
+```r
+install.packages("remotes")
+remotes::install_github("uribo/tabularmaps")
+```
+
+```{r}
+library(tabularmaps)
+library(ggplot2)
+```
+
+可視化の際にggplot2パッケージを利用しているので、そちらも読み込んでおく必要があります。
+
+## 使い方
+
+現在tabularmapsでは
+
+- 都道府県 (`jpn77`)
+- 東京23区 (`tky23`)
+- ISO-3166による国名 (`iso3166`)
+
+の3種類に対応しています。括弧内の文字列がパッケージに含まれるデータフレームオブジェクトで、県や区などの対象行政名の位置関係を記録しています。
+
+冒頭の都道府県のカラム地図は次のコマンドにより描画されます。
+
+```{r, eval = FALSE, echo = TRUE}
+tabularmap(jpn77, 
+           fill = region_kanji, 
+           label = prefecture_kanji, 
+           size = 3,
+           family = "IPAexGothic") +
+  theme_tabularmap(base_family = "IPAexGothic") +
+  scale_fill_jpregion(lang = "jp",
+                      name = "八地方区分")
+```
+
+`tabularmap()`がカラム地図を表示させる関数として機能します。この関数では第一引数に対象のデータフレームを与えて実行します。
+そのほかの引数としてggplot2オブジェクトの審美的要素を決定するfill (塗り分けの色基準)、label (表示するラベル文字列)の変数名を与えます。
+これに加え、`ggplot2::geom_text()`に渡す値を指定可能です。
+これはラベルの大きさを調整する size やフォントのための family を使うことを想定しています。
+
+上記のコードでは、`tabularmap()`に加えて`theme_tabularmap()`、`scale_fill_jpregion()`を実行しています。これらの関数はオプションとして利用可能なもので、
+よりカラム地図っぽい見た目に調整するためのものです。
+都道府県を表示させるカラム地図では地方別に塗り分ける色が決まっているため、それに応じた塗り分けを行うようになります。
+
+続いて東京23区の表示をしてみます。先のコードから`tabularmap()`に与えるデータとラベル用の変数名を変更するだけです。
+
+```{r, eval = FALSE, echo = TRUE}
+tabularmap(tky23,
+           label = ward_kanji,
+           family = "IPAexGothic") +
+  theme_tabularmap(base_family = "IPAexGothic") +
+  guides(fill = FALSE)
+```
+
+![](https://github.com/uribo/tabularmaps/blob/master/man/figures/README-demo_tky23-2.png?raw=true)
+
+現実の配置や面積がぼやけてしまう欠点もありますが、
+行政区域のデータを用意する必要がないのはカラム地図の大きな利点です。
+（カラム地図のレイアウト自体はオープンライセンスで開発されています。）
+
+また本来想定されていたダッシュボードでの利用を考える場合、
+表示する際のスペースが有効活用できるのも嬉しいです。
+日本の場合、細長くなるのでどうしても隙間ができてしまいますが、カラム地図だと基本的にグリッドになるので無駄が少ないです。
+
+### 今後の機能
+
+https://fukuno.jig.jp/2821
+
+本家のカラム地図では、市区町村を対象にしたレイアウトが全国47都道府県分定まったとのことです。
+これらの情報を追いながら、**tabularmaps**パッケージでも市区町村版を追加する作業を進めていくつもりです。
+
+
+
+全国のデータを追加するのは時間がかかりそうなので、皆さんからの協力(Pull request)をお待ちしています。
+
+## 余談
+
+SNSを見ていると、時々ヘンテコな地図が回ってきます。
+
+「白地図上に47都道府県の名前を書き込んでください」
+
+中学生の地理で習うような問題です。
+回答を見ていると、有名な東京都や神奈川県、形のわかりやすい北海道などは簡単な様子。
+一方で北関東の群馬、栃木、茨城の配置、島根と鳥取の位置関係などを間違えている例をしばしば見かけます（私も苦手でした）。
+またそれ以上にトンデモな解答も...。
+
+行政境界の複雑な幾何学模様を認識し記憶することに対する人間の限界を感じます。
+それが特に自分とは関わりのない地域であれば尚更です。
+
+また、行政区は人間が勝手に定めたもの。時間の経過とともに境界も変化していきます。
+
+情報を伝えるとき、これらの行政区をどこまで厳密に再現する必要があるでしょうか。
+
+地図を表示するにはポリゴンないしラインデータを用意しなくてはいけない。そう思っていた時期が私にもありました。
+
+ですがそうではなかったのです。
+
+必要なのは、情報を正しく、わかりやすく伝えること。
+
+カラム地図では、現実に対して幾らかの嘘をつくことになりますが、それは許容されうる範囲なのではと思います。
+
+
+## 参考
+
+- ダッシュボード利用を想定した都道府県別の指標値の可視化（「カラム地図」）のプロトタイプ - Qiita https://qiita.com/hfu/items/8d8df2ae5dcf9d9e0f4a
+- https://fukuno.jig.jp/2433
