@@ -1,0 +1,117 @@
+---
+title: "R Markdownでのハイライトを行うflairパッケージを使ってみた"
+author: "Shinya Uryu"
+date: "2020年4月25日"
+output: 
+  md_document:
+    variant: gfm
+---
+
+```{r setup, include=FALSE}
+options(knitr.duplicate.label = TRUE)
+knitr::opts_chunk$set(eval = TRUE, echo = TRUE)
+```
+
+R MarkdownによるHTML出力を行う時、コードのシンタックスハイライトを取り入れることができます。一方でコードの特定の箇所を強調したり装飾することは困難でした(xaringanパッケージでのプレゼンテーション用の出力では可能)。
+
+ですがそれも過去の話。今日紹介する flair パッケージを使うと、そうした要望に答えられます。
+
+https://github.com/kbodwin/flair
+
+[公式のドキュメント](https://kbodwin.github.io/flair/index.html)が整備されているのでそっちを読んだ方が手っ取り早い、正確な気もしますが備忘録として日本語で整理しておきます。
+
+**flairパッケージでできること**
+
+- R MarkdownによるRコードのHTML出力の部分ハイライト
+- ハイライト対照のコードはコードチャンク、文字列で指定
+- `decorate()`でチャンクオプションの制御
+- `flair()`
+    - 特定の文字列、関数、引数をハイライトできる派生関数も豊富
+    - ハイライトの文字の色、背景色、斜体や太字などの文字装飾を調整可能
+
+なお、ハイライトは便利でわかりやすさを促進する可能性がありますが、ハイライトによって見えにくくなったり混乱を招く恐れがあることも注意が必要です。これについて、公式のドキュメント内で
+
+> However, please remember to be judicious in your color choices, and to
+> keep in mind [how your colors appear to colorblind
+> individuals](https://venngage.com/blog/color-blind-friendly-palette/).
+
+の一文があるのがとても好印象でした。用法要領を守って適切に使っていきたいですね。
+
+## 導入
+
+flairは先日CRANに登録されました。Rの標準パッケージ追加関数である`install.packages()`を使ってインストールが可能です。開発版を入れたい人は `remotes::install_github("kbodwin/flair)`を実行してください。
+
+```{r, warning=FALSE, message=FALSE}
+library(flair)
+library(dplyr)
+```
+
+flairでは`decorate()`と`flair()`が主要な関数となります。あとで触れますが`flair()`にはいくつかの派生系が用意されています。基本的な使い方を見ていきましょう。
+
+まずはいつも通りチャンクを使ってRコードを書きます。このコードがハイライトの対象となります。この時、チャンクラベル（チャンク名）をつけておくのが大事です。
+
+````
+```{r how_to_pipe, include = FALSE}`r ''`
+# how_to_pipeがチャンク名になります
+iris %>%
+  group_by(Species) %>%
+  summarize(sepal_length_avg = mean(Sepal.Length))
+```
+````
+
+```{r how_to_pipe, include = FALSE}
+iris %>%
+  group_by(Species) %>%
+  summarize(sepal_length_avg = mean(Sepal.Length))
+```
+
+次の処理がハイライトのための操作となります。まず`decorate()`で先ほどの、ハイライトさせたいコードが書かれてたチャンクラベルを文字列で指定、そのオブジェクトを`flair()`に渡します。`flair()`の第一引数に`decorate()`の結果が入ることになるのでパイプ演算子 (`%>%`)を使うと楽です。複数のハイライトを行う場合も、パイプ演算子でつなげて書けるので便利です。
+
+そして`flair()`関数ではハイライトさせる文字列を指定します。
+
+```{r}
+decorate("how_to_pipe", eval = FALSE) %>% 
+  flair("%>%")
+```
+
+上記のハイライトされている部分が出力結果です。Knitすると`pre`と`code`タグからなるHTMLが出力される仕組みです。実際の使い所としては`decorate()`、`flair()`のコードは見せなくても良いので、そちらのチャンクコードを`echo=FALSE`にしておくと良いと思います。
+
+`decorate()`では、引数内でチャンクオプションの値を制御できます。上記のコードでは、irisデータの集計結果を出力しないために`eval = FALSE`を与えました。
+
+また、`decorate()`ではチャンクラベルではなく、Rコードを直接記述してハイライトの対象としても良いです。今度はチャンクコードのRコードも実行する様に`eval = FALSE`を与えずに実行してみます。
+
+```{r}
+decorate("mean(1:10)") %>% 
+  flair("mean")
+```
+
+R MarkdownファイルをKnitする前に、どのような出力になるかを確認することも可能です。コンソールで上記のコードを実行してみましょう(Knitする前のチャンク名をどうして把握できているのか、よくわかっていない)。RStudioを使っている場合、Viewerパネルにハイライトされた結果が表示されます。
+
+## flairの派生系
+
+先ほどは`flair()`で特定の文字列をハイライトする例でしたが、関数や引数をハイライトするための関数も用意されています。それぞれ`flair_funs()`と`flair_args()`です。このほかにも指定した行をハイライトする`flair_lines()`、関数に与えた引数と値のための`flair_input_vals()`、正規表現によるパターン指定が可能な`flair_rx()`などがあります。
+
+```{r}
+decorate("how_to_pipe", eval = FALSE) %>% 
+  flair_funs()
+```
+
+```{r}
+decorate("how_to_pipe", eval = FALSE) %>% 
+  flair_args()
+```
+
+## 文字装飾
+
+flairパッケージではハイライトしたときの見た目を変更する機能が備わっています。これは`flair()`内で指定しますが、論理値で指定するものと値を指定するものがあります。前者は太字 (bold)、下線 (underline)、斜体 (italic)とするか、後者はハイライトの色 (color) および背景色 (bg_color)などです。
+
+```{r}
+decorate("how_to_pipe", eval = FALSE) %>% 
+  flair_lines(2) %>%
+  flair_funs(color = "LightCoral") %>% 
+  flair("%>%", color = "Azure", background = "Navy")
+```
+
+こんなてんこ盛りな装飾もできます。
+
+Enjoy!
