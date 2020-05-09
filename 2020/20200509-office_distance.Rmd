@@ -1,0 +1,287 @@
+---
+title: "市区町村役所間の距離行列を求める~pdftoolsでのデータ抽出とsfによる算出編~"
+author: "Shinya Uryu"
+date: "2020年5月9日"
+output: 
+  md_document:
+    variant: gfm
+---
+
+```{r setup, include=FALSE}
+options(knitr.duplicate.label = TRUE)
+knitr::opts_chunk$set(eval = TRUE, echo = TRUE)
+```
+
+## はじめに
+
+Qiitaのなかで[@3tky](https://qiita.com/3tky) さんが、都道府県庁間の距離行列をRで求める記事を書かれていました。
+
+https://qiita.com/3tky/items/1be8841454beee03c5c6
+
+そして、挑戦状のような一文が残されています。
+
+> 市区町村の役所の緯度経度は 国土地理院 がまとめているので、PDFを整形し、60進法表記を @uri さんのkuniezuパッケージ や pazerパッケージを活用して10進法に変換後、上のコードから市区町村役所間の距離行列が作成できそう。
+
+**これはやらねばなるまい**（謎の使命感）。
+本記事では、[@3tky](https://qiita.com/3tky) さんの書かれていた都道府県庁間の距離行列を算出する方法の別解と同様に市区町村役所の距離行列を求める方法を書きます。
+大元の市区町村の役所の緯度経度データは国土地理院が公開するPDFデータです。そのためPDFからデータを抽出、加工する方法についても言及します。
+
+記事の中で以下のパッケージを利用します。予め読み込んでおきましょう。
+
+```{r}
+library(sf)
+library(dplyr)
+library(ggplot2)
+library(rvest)
+# library(units)
+# library(tidyverse)
+```
+
+## 都道府県庁間の距離行列
+
+記事を見たあと、CRANにリリース準備だった kuniezu パッケージに都道府県の県庁位置のデータを収納しました。
+このデータの取得・整形するコードは https://github.com/uribo/kuniezu/blob/master/data-raw/office_locaiton.R に置いています。
+
+```{r}
+data("jp47prefectural_offices", package = "kuniezu") # 47都道府県の県庁位置データ
+jp47prefectural_offices
+```
+
+まずは対角要素が0となる距離行列を作成します。sfオブジェクトでの地物間の距離は `st_distance()` を使って求められます。
+
+```{r}
+dist_pref <-
+  jp47prefectural_offices %>%
+  st_distance()
+```
+
+```{r}
+colnames(dist_pref) <- jp47prefectural_offices$office
+rownames(dist_pref) <- jp47prefectural_offices$office
+dist_pref[seq_len(6), seq_len(6)]
+```
+
+また、距離の単位はmですが units パッケージの関数を使って任意の単位に変更可能です。
+
+```{r}
+dist_pref <- 
+  dist_pref %>% 
+  units::set_units(km)
+dist_pref[seq_len(6), seq_len(6)]
+```
+
+この値が [@3tky](https://qiita.com/3tky) さんの結果や[国土地理院の公表データ](https://www.gsi.go.jp/KOKUJYOHO/kenchokan.html)と一致していることを確認します。
+
+### 市区町村役所の距離行列
+
+続いて市区町村役所の距離行列を求めます。
+こちらのデータも[国土地理院が位置情報を整理しています](https://www.gsi.go.jp/KOKUJYOHO/center.htm)。
+ですがPDFなので、Rで扱う際にはデータを抽出する必要が生じます。
+
+PDFファイルのダウンロードは以下のコードで行います。
+
+```{r, eval = FALSE, echo = TRUE}
+df_link <-
+  read_html("https://www.gsi.go.jp/KOKUJYOHO/center.htm") %>%
+  html_nodes(css = "div.base_txt > div:nth-child(5) > table > tbody > tr > td > a") %>% {
+    tibble::tibble(
+      name = stringr::str_remove(html_text(.), "\\[.+\\]"),
+      link = html_attr(., "href"))
+  }
+df_link$link %>%
+  purrr::walk(
+    ~ download.file(url = .x,
+                    destfile = basename(.x))
+```
+
+RでPDFのデータ抽出を行うパッケージはいくつかありますが、今回は [pdftools](https://cran.r-project.org/package=pdftools) を使いました。
+`pdftools::pdf_text()`によりテキストを抽出、若干血生臭い文字列処理を行いデータフレーム化します。
+これらの処理を一括で実行する関数を書きました。
+
+https://github.com/uribo/kuniezu/blob/22a17ac8ff3567095ca2a934bac9e3d6ccbc0820/data-raw/office_locaiton.R#L5-L59
+
+```{r, include=FALSE}
+fix_coord_symbol <- function(x) {
+  chartr(old = "\u00b0\u2032\u2033",
+         new = "\u00b0\u2019.",
+         x = stringr::str_replace(x, "′′", "″"))
+}
+gsi_office_extract_page <- function(data) {
+  d3 <-
+    data %>%
+    stringr::str_remove(".+世界測地系") %>%
+    stringr::str_split("\n", simplify = TRUE) %>%
+    stringr::str_subset("北端|経度|緯度") %>%
+    purrr::discard(~ nchar(.x) == 0L) %>%
+    stringr::str_squish() %>%
+    stringr::str_split("[[:space:]]", simplify = TRUE) %>%
+    as.data.frame(stringsAsFactors = FALSE) %>%
+    mutate(id = dplyr::row_number()) %>%
+    select(id, everything())
+  d4 <-
+    seq.int(1, nrow(d3), by = 3) %>%
+    purrr::map_dfr(
+      ~ tibble::add_column(d3[.x, ], aa = NA_character_, .after = 2) %>%
+        select(-V6)) %>%
+    purrr::set_names(c("id",
+                       paste0("V", seq_len(6))))
+
+  d3 %>%
+    filter(!id %in% d4$id) %>%
+    mutate(V1 = NA_character_) %>%
+    bind_rows(d4) %>%
+    arrange(id) %>%
+    tidyr::fill(V1, .direction = "down") %>%
+    filter(!is.na(V2)) %>%
+    select(-1) %>%
+    purrr::set_names(c("office", "coords", "e", "w", "n", "s")) %>%
+    mutate(type = rep(c("longitude", "latitude"), nrow(.)/2)) %>%
+    tidyr::pivot_longer(cols = 2:6,
+                        names_to = "var",
+                        values_to = "value") %>%
+    tidyr::pivot_wider(names_from = type,
+                       values_from = value) %>%
+    mutate_at(vars(longitude, latitude),
+              fix_coord_symbol) %>%
+    mutate(longitude = parzer::parse_lon(longitude),
+           latitude = parzer::parse_lat(latitude)) %>%
+    st_as_sf(coords = c("longitude", "latitude"), crs = 4326) %>%
+    filter(var == "coords") %>%
+    select(-var)
+}
+gsi_office_extract <- function(file) {
+  pdftools::pdf_text(file) %>%
+    purrr::map(
+      gsi_office_extract_page
+    ) %>%
+    purrr::reduce(rbind)
+}
+```
+
+
+リンク先のコード（関数部分）をコピーペーストで読み込んでください。
+最終的には各都道府県のPDFを引数に与える `gsi_office_extract()` を実行することでデータ抽出が完了します。
+
+```{r, include=FALSE}
+st_distmatrix <- function(data, var) {
+  res <-
+    data %>%
+    st_distance() %>%
+    units::set_units(km)
+  vars <-
+    data %>%
+    purrr::pluck(var)
+  colnames(res) <- vars
+  rownames(res) <- vars
+  res
+}
+matrix_to_longer <- function(data) {
+  res_mt <-
+    as.matrix(units::drop_units(data))
+  res_mt[lower.tri(res_mt)] <- NA
+  res_mt %>%
+    as.data.frame() %>%
+    tibble::rownames_to_column(var = "from") %>%
+    tibble::as_tibble() %>%
+    tidyr::pivot_longer(cols = seq.int(2, ncol(.)),
+                        names_to = "to",
+                        values_to = "dist") %>%
+    dplyr::filter(!is.na(dist)) %>%
+    dplyr::mutate_at(dplyr::vars(from),
+                     list(~ forcats::fct_inorder(.))) %>%
+    dplyr::mutate(to = forcats::fct_rev(forcats::fct_inorder(to)))
+}
+plot_distmatrix <- function(data) {
+  data %>%
+    ggplot(aes(from, to)) +
+    geom_tile(aes(fill = dist), color = "white") +
+    scale_fill_viridis_c() +
+    guides(fill = guide_legend(title = "distance (km)")) +
+    theme_bw(base_family = "IPAexGothic") +
+    theme(
+      axis.text.x = element_text(angle = 90),
+      axis.ticks = element_blank(),
+      axis.line = element_blank(),
+      panel.border = element_blank(),
+      panel.grid.major = element_line(color = '#eeeeee')
+    )
+}
+```
+
+
+```{r, echo=TRUE, eval=FALSE}
+# 茨城県の市区町村役所の位置情報
+sf_pref08office <- 
+  gsi_office_extract("ibaraki_heso.pdf")
+```
+
+```{r, include=FALSE}
+sf_pref08office <-
+  gsi_office_extract("~/Documents/projects2020/kuniezu/data-raw/offices/ibaraki_heso.pdf")
+```
+
+
+```{r}
+sf_pref08office
+```
+
+
+この位置情報データに対して、都道府県庁間の距離行列を求めた時と同じコードを実行することで市区町村役所の距離行列も求められます。
+これらの処理も関数化しておきました。可視化と合わせてどうぞ。
+
+```{r}
+# 距離行列を作成
+st_distmatrix <- function(data, var) {
+  res <-
+    data %>%
+    st_distance() %>%
+    units::set_units(km)
+  vars <-
+    data %>%
+    purrr::pluck(var)
+  colnames(res) <- vars
+  rownames(res) <- vars
+  res
+}
+# ggplot2で描画するためのデータ整形。三角行列に変換して縦長のデータにします
+matrix_to_longer <- function(data) {
+  res_mt <-
+    as.matrix(units::drop_units(data))
+  res_mt[lower.tri(res_mt)] <- NA
+  res_mt %>%
+    as.data.frame() %>%
+    tibble::rownames_to_column(var = "from") %>%
+    tibble::as_tibble() %>%
+    tidyr::pivot_longer(cols = seq.int(2, ncol(.)),
+                        names_to = "to",
+                        values_to = "dist") %>%
+    dplyr::filter(!is.na(dist)) %>%
+    dplyr::mutate_at(dplyr::vars(from),
+                     list(~ forcats::fct_inorder(.))) %>%
+    dplyr::mutate(to = forcats::fct_rev(forcats::fct_inorder(to)))
+}
+# ggplot2でのプロット
+plot_distmatrix <- function(data) {
+  data %>%
+    ggplot(aes(from, to)) +
+    geom_tile(aes(fill = dist), color = "white") +
+    scale_fill_viridis_c() +
+    guides(fill = guide_colorbar(title = "distance (km)")) +
+    theme_bw(base_family = "IPAexGothic") +
+    theme(
+      axis.text.x = element_text(angle = 90),
+      axis.ticks = element_blank(),
+      axis.line = element_blank(),
+      panel.border = element_blank(),
+      panel.grid.major = element_line(color = '#eeeeee')
+    )
+}
+```
+
+```{r, dpi=300, fig.width=10, fig.height=7}
+st_distmatrix(sf_pref08office, "office") %>%
+  matrix_to_longer() %>%
+  plot_distmatrix()
+```
+
+Enjoy!
