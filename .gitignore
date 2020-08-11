@@ -5,7 +5,6 @@
 *.rds
 *.rdb
 !^README.md$
-*/*.md
 *.pxm
 */figure-markdown_github/*
 */markdown_github/*
