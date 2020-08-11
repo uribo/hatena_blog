@@ -1,4 +1,4 @@
-FROM uribo/ramora:latest
+FROM uribo/ramora@sha256:f2ded1c5ae273fb146045079b13c64631a14dc2b4ef0f62b9af43cc61f1cc8d9
 
 RUN set -x && \
   apt-get update && \
@@ -14,7 +14,7 @@ RUN set -x && \
   echo "GITHUB_PAT=$GITHUB_PAT" >> /usr/local/lib/R/etc/Renviron
 
 RUN set -x && \
-  install2.r --error --repos 'http://mran.revolutionanalytics.com/snapshot/2020-04-20' \
+  install2.r --error --ncpus -1 --repos 'https://mran.revolutionanalytics.com/snapshot/2020-08-11' \
     carbonate \
     estatapi \
     extrafont \ 
